@@ -44,58 +44,33 @@ I do not recommend using this project for professional, business-critical, or se
 
 This is not a project I am working on full-time. My main focus is on other projects, and this repository is developed in my spare time for experimentation and entertainment while sharing progress publicly.
 
-## Responsible Use Notice
-
-If you notice:
-
-- legal issues
-- licensing mistakes
-- trademark concerns
-- security problems
-- serious architectural problems
-
-please open an issue or submit a pull request describing the problem clearly.
-
-If there is any infringement or compliance issue that I am not aware of, I would rather have it pointed out and corrected than ignored.
-
 ## Architecture
 
 ```text
-┌────────────────────────────────────────┐
-│  libssh + OpenSSL                      │
-│  ↓ SSH foundation                      │
-├────────────────────────────────────────┤
-│  openterm_core (C wrapper layer)       │
-├────────────────────────────────────────┤
-│  Platform UI layers                    │
-│  - SwiftUI (macOS, current platform)   │
-│  - iOS/Windows/Linux (future)          │
-└────────────────────────────────────────┘
+libssh + OpenSSL
+-> openterm_core (C)
+-> platform UI layers
 ```
 
 ## Repository Layout
 
 ```text
 term/
-├── core/           # C wrapper over libssh
-├── platforms/      # Platform-specific implementations
-│   └── macos/      # Current SwiftUI app layer
-├── docs/           # Project documentation
-├── scripts/        # Build scripts
-├── tools/          # Manual CLI / smoke-test tools
-└── tests/          # Tests
+├── core/
+├── platforms/
+├── scripts/
+├── tools/
+├── tests/
+├── vendor/
+└── dist/
 ```
 
-## Development Status
+## Build Paths
 
-Current maintained paths in this repository:
+Current build paths in this repository:
 
-- the C core is built with CMake
-- the macOS app uses `dist/OpenTermCore.xcframework`
-- the current product direction and phases live in [docs/ROADMAP.md](docs/ROADMAP.md)
-- the `libssh` update process lives in [docs/UPDATING_LIBSSH.md](docs/UPDATING_LIBSSH.md)
-- the stable public core surface lives in [docs/CORE_API.md](docs/CORE_API.md)
-- the Apple dependency migration path lives in [docs/APPLE_BUILD.md](docs/APPLE_BUILD.md)
+- shared core build with CMake
+- macOS app build through `dist/OpenTermCore.xcframework`
 
 Dependency contracts today:
 
@@ -111,8 +86,6 @@ The supported macOS app path is `./scripts/build_macos_app.sh`.
 | CMake 3.20+ | Core build system |
 | Git | Source management |
 | C compiler | `gcc`, `clang`, or MSVC-compatible toolchain |
-
-In most development environments, you should not need to install `libssh` manually.
 
 ## Build The Core
 
@@ -163,8 +136,6 @@ Recommended command:
 ./scripts/build_macos_app.sh
 ```
 
-That command is the supported one-command macOS build for Apple Silicon. It prepares the Apple dependency chain itself before building the Swift package.
-
 Explicit step-by-step path:
 
 ```bash
@@ -179,7 +150,7 @@ Prerequisites:
 - Xcode / Swift toolchain with macOS support
 - Apple dependency artifacts prepared under `vendor/apple/`
 - Apple Silicon (`arm64`) Mac
-- OpenSSL is part of the Apple dependency chain and remains relevant not only technically but also for license/compliance review when distributing binaries
+- OpenSSL remains part of the native dependency chain and matters for license/compliance review when distributing binaries
 
 Important:
 
@@ -187,7 +158,6 @@ Important:
 - if that artifact does not exist yet, the package will fail explicitly
 - the official Apple-platform path in this repo is currently centered on the macOS app, not iOS
 - the supported macOS build target is Apple Silicon (`arm64`) only
-- the official Apple dependency story is described in [docs/APPLE_BUILD.md](docs/APPLE_BUILD.md)
 - the Apple dependency path uses prepared artifacts under `vendor/apple/`, generated from sources under `vendor/sources/`
 
 ## Tests
@@ -198,29 +168,11 @@ The manual CLI lives in `tools/`.
 
 ## Licensing
 
-- Project code: GPL-3.0, see [LICENSE](LICENSE)
+- Project code: MIT License, see [LICENSE](LICENSE)
 - Third-party dependencies and notices: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 - OpenSSL remains part of the shipped/native dependency story, so binary distribution should review its license and notices in addition to `libssh`
 
-## Contributing
-
-Contributions are welcome, especially when they improve:
-
-- correctness
-- reproducibility
-- security
-- documentation clarity
-- platform build hygiene
-
-See [docs/DEV.md](docs/DEV.md).
-
 ## FAQ
-
-### Do I need Homebrew to build this?
-
-Not for the official Apple path anymore.
-
-The intended Apple build now uses prepared Apple-native OpenSSL and `libssh` artifacts under `vendor/apple/`. Homebrew may still be convenient in some local development scenarios, but it is no longer the official dependency story for the macOS package.
 
 ### Is this ready for professional use?
 
@@ -228,8 +180,8 @@ No. Treat it as an experimental project until there is a stable release with a c
 
 ### Can I distribute it?
 
-Yes, with conditions. If you distribute binaries, you must comply with GPL-3.0 and with the licenses and notices of bundled or linked dependencies.
+Yes, with conditions. If you distribute binaries, you must comply with the MIT License and with the licenses and notices of bundled or linked dependencies (e.g. OpenSSL and libssh).
 
 ### Can I publish it in an app store?
 
-That requires specific legal review. Some store terms may conflict with GPL-style distribution models.
+Yes, the MIT license allows distribution in app stores. However, you must ensure your distribution method satisfies the LGPL v2.1 requirements of the `libssh` dependency (e.g., providing source code or object files allowing relinking).

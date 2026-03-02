@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-This project uses or integrates third-party components. When redistributing binaries or source code, you must review and comply with their respective licenses in addition to the project's GPL-3.0 license.
+This project uses or integrates third-party components. When redistributing binaries or source code, you must review and comply with their respective licenses in addition to this project's MIT License.
 
 ## libssh
 
