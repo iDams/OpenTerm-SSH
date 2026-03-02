@@ -7,7 +7,7 @@ struct AboutView: View {
     @State private var openURLErrorMessage = ""
     @Environment(\.openURL) var openURL
 
-    private let githubURL = URL(string: "https://github.com/marco/openterm")
+    private let githubURL = URL(string: "https://github.com/iDams/OpenTerm-SSH")
 
     var body: some View {
         ScrollView {
@@ -47,11 +47,11 @@ struct AboutView: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 60, height: 60)
                     .padding(.top, 8)
-                    .foregroundStyle(.accentColor)
+                    .foregroundColor(.accentColor)
             }
 
             VStack(spacing: 4) {
-                Text("OpenTerm")
+                Text("OpenTerm SSH")
                     .font(.system(size: 34, weight: .bold, design: .rounded))
 
                 Text("Version 1.0.0")

@@ -11,7 +11,7 @@ struct OpenTermApp: App {
         .defaultSize(width: 960, height: 620)
         .commands {
             CommandGroup(replacing: .appInfo) {
-                Button("About OpenTerm") {
+                Button("About OpenTerm SSH") {
                     AboutWindowController.shared.showWindow()
                 }
             }
@@ -41,7 +41,7 @@ class AboutWindowController {
         )
         
         newWindow.center()
-        newWindow.title = "About OpenTerm"
+        newWindow.title = "About OpenTerm SSH"
         newWindow.contentViewController = hostingController
         newWindow.isReleasedWhenClosed = false
         

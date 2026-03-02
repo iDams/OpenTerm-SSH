@@ -25,7 +25,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.openterm.mac
-        PRODUCT_NAME: OpenTerm
+        PRODUCT_NAME: "OpenTerm SSH"
         SWIFT_VERSION: 5.9
         MACOSX_DEPLOYMENT_TARGET: 14.0
         ARCHS: arm64
