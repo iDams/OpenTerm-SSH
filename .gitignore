@@ -1,0 +1,48 @@
+# Build folders
+build/
+core/build/
+core/build-tests/
+core/build_xcframework/
+dist/
+docs/
+vendor/apple/openssl/
+vendor/apple/libssh/
+vendor/apple/build/
+
+# C/C++ build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.app
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+_deps/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+.cache/
+.spm-home/
+
+# IDE & Editor
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.xcuserstate
+
+# OS & Logs
+.DS_Store
+Thumbs.db
+*.log

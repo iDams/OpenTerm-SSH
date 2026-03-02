@@ -1,0 +1,4 @@
+module OpenTermCore [system] {
+    header "term_ssh.h"
+    export *
+}
