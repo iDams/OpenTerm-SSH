@@ -60,7 +60,6 @@ echo ""
 echo "📝 Notes:"
 echo "   - The general core build uses vendor/libssh already present in the repo."
 echo "   - The macOS app build uses Apple-native OpenSSL/libssh artifacts generated from vendor/sources/."
-echo "   - Builds do not install libssh for you via Homebrew or apt."
 echo "   Review THIRD_PARTY_NOTICES.md before redistributing binaries."
 echo ""
 if [[ "$OSTYPE" == "darwin"* ]]; then

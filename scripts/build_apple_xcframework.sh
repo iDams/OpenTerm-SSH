@@ -9,12 +9,7 @@ APPLE_OPENSSL_VERSION="${OPENTERM_OPENSSL_VERSION:-3.6.1}"
 APPLE_LIBSSH_VERSION="${OPENTERM_LIBSSH_VERSION:-0.11.3}"
 APPLE_OPENSSL_DIR="$SCRIPT_DIR/../vendor/apple/openssl/$APPLE_OPENSSL_VERSION"
 APPLE_LIBSSH_DIR="$SCRIPT_DIR/../vendor/apple/libssh/$APPLE_LIBSSH_VERSION"
-
-if [[ -x /opt/homebrew/bin/cmake ]]; then
-    CMAKE_BIN="/opt/homebrew/bin/cmake"
-else
-    CMAKE_BIN="$(command -v cmake)"
-fi
+CMAKE_BIN="$(command -v cmake)"
 
 apple_deps_ready() {
     [[ -d "$APPLE_OPENSSL_DIR/macos-arm64" ]] &&
@@ -34,14 +29,13 @@ if ! apple_deps_ready; then
     exit 1
 fi
 
-# Clean build directory
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
 build_arch() {
-    local platform=$1
-    local arch=$2
-    local sysroot=$3
+    local platform="$1"
+    local arch="$2"
+    local sysroot="$3"
     local out_dir="$BUILD_DIR/$platform-$arch"
 
     echo "📋 Configuring $platform ($arch)..."
@@ -49,15 +43,12 @@ build_arch() {
     local cmake_args=(
         -S "$CORE_DIR"
         -B "$out_dir"
-        -DCMAKE_BUILD_TYPE=Release \
-        -DBUILD_EXAMPLE=OFF \
-        -DBUILD_TESTS=OFF \
-        -DCMAKE_OSX_SYSROOT="$sysroot" \
-        -DCMAKE_OSX_ARCHITECTURES="$arch" \
+        -DCMAKE_BUILD_TYPE=Release
+        -DBUILD_EXAMPLE=OFF
+        -DBUILD_TESTS=OFF
+        -DCMAKE_OSX_SYSROOT="$sysroot"
+        -DCMAKE_OSX_ARCHITECTURES="$arch"
         -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
-    )
-
-    cmake_args+=(
         -DOPENTERM_LIBSSH_ROOT="$APPLE_LIBSSH_DIR/$platform-$arch"
         -DOPENTERM_APPLE_OPENSSL_ROOT="$APPLE_OPENSSL_DIR/$platform-$arch"
     )
@@ -68,10 +59,8 @@ build_arch() {
     "$CMAKE_BIN" --build "$out_dir" --config Release
 }
 
-# 1. Build macOS (arm64 only)
 build_arch "macOS" "arm64" "macosx"
 
-# 2. Create XCFramework
 echo "📦 Combining static libraries into XCFramework..."
 rm -rf "$XCFRAMEWORK_DIR"
 mkdir -p "$SCRIPT_DIR/../dist"

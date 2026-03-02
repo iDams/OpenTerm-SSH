@@ -14,12 +14,7 @@ APPLE_LIBSSH_DIR="$REPO_DIR/vendor/apple/libssh/$LIBSSH_VERSION"
 BUILD_ROOT="$REPO_DIR/vendor/apple/build/libssh-$LIBSSH_VERSION"
 
 ARCHS=("arm64")
-
-if [[ -x /opt/homebrew/bin/cmake ]]; then
-    CMAKE_BIN="/opt/homebrew/bin/cmake"
-else
-    CMAKE_BIN="$(command -v cmake)"
-fi
+CMAKE_BIN="$(command -v cmake)"
 
 require_command() {
     if ! command -v "$1" >/dev/null 2>&1; then

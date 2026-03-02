@@ -46,3 +46,8 @@ DerivedData/
 .DS_Store
 Thumbs.db
 *.log
+
+# macOS local build outputs
+platforms/macos/.build/
+platforms/macos/.cache/
+platforms/macos/.spm-home/

@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CORE_DIR="$SCRIPT_DIR/../core"
@@ -10,11 +10,7 @@ if [[ -d "$SCRIPT_DIR/../vendor/libssh" ]]; then
     LOCAL_LIBSSH_ROOT="$SCRIPT_DIR/../vendor/libssh"
 fi
 
-if [[ -x /opt/homebrew/bin/cmake ]]; then
-    CMAKE_BIN="/opt/homebrew/bin/cmake"
-else
-    CMAKE_BIN="$(command -v cmake)"
-fi
+CMAKE_BIN="$(command -v cmake)"
 
 if command -v getconf >/dev/null 2>&1; then
     BUILD_JOBS="$(getconf NPROCESSORS_ONLN)"
@@ -42,15 +38,12 @@ echo "🛠️  Using CMake: $CMAKE_BIN"
 echo "🧵 Parallel jobs: $BUILD_JOBS"
 echo ""
 
-# Create build directory
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-# Configure
 echo "📋 Configuring with CMake..."
 "$CMAKE_BIN" "${CMAKE_ARGS[@]}" "$@"
 
-# Build
 echo ""
 echo "⚙️  Compiling (this may take a few minutes on first build)..."
 make -j"$BUILD_JOBS"
