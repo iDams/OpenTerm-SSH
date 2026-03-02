@@ -47,7 +47,7 @@ struct AboutView: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 60, height: 60)
                     .padding(.top, 8)
-                    .foregroundStyle(.accent)
+                    .foregroundStyle(.accentColor)
             }
 
             VStack(spacing: 4) {
