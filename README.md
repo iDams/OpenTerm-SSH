@@ -2,6 +2,8 @@
 
 OpenTerm SSH is an open source SSH/SFTP client project built around a reusable C core on top of vendored `libssh`.
 
+![OpenTerm SSH v1.0.0](screenshots/openterm_ssh_v1.png)
+
 Current vendored `libssh` version: `0.11.3`
 
 ## What This Project Is
