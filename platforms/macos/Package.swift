@@ -93,7 +93,8 @@ let package = Package(
             ],
             path: "Sources",
             resources: [
-                .process("Assets.xcassets")
+                .process("Assets.xcassets"),
+                .process("Resources")
             ],
             linkerSettings: [
                 .linkedLibrary("z"),
