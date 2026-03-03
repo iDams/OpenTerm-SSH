@@ -64,7 +64,7 @@ struct HostsHomeView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Hosts")
+                    Text("OpenTermSSH")
                         .font(.system(size: 30, weight: .semibold))
                     
                     Text(hostsSubtitle)
@@ -72,12 +72,7 @@ struct HostsHomeView: View {
                         .foregroundStyle(.secondary)
                 }
                 
-                Spacer()
-                
-                HStack(spacing: 10) {
-                    statPill(title: "Saved", value: "\(profileStore.profiles.count)")
-                    statPill(title: "Showing", value: "\(filteredProfiles.count)")
-                }
+                Spacer(minLength: 0)
             }
             
             HStack(spacing: 10) {
@@ -87,6 +82,7 @@ struct HostsHomeView: View {
             }
         }
         .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(
@@ -134,11 +130,22 @@ struct HostsHomeView: View {
         Table(filteredProfiles, selection: $selectedProfileID) {
             TableColumn("Name") { profile in
                 HStack(spacing: 10) {
-                    Image(systemName: ConnectionProfilePresentation.iconName(for: profile))
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 28, height: 28)
-                        .background(ConnectionProfilePresentation.iconColor(for: profile).gradient, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    Group {
+                        switch ConnectionProfilePresentation.icon(for: profile) {
+                        case .system(let name):
+                            Image(systemName: name)
+                                .font(.system(size: 13, weight: .medium))
+                        case .asset(let name):
+                            Image(name)
+                                .resizable()
+                                .renderingMode(.template)
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 14, height: 14)
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(ConnectionProfilePresentation.iconColor(for: profile).gradient, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     
                     VStack(alignment: .leading, spacing: 2) {
                         Text(profile.name)
@@ -291,18 +298,5 @@ struct HostsHomeView: View {
     private var hostsBackground: some View {
         Color(NSColor.windowBackgroundColor)
             .ignoresSafeArea()
-    }
-    
-    private func statPill(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.headline)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }

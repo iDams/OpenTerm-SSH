@@ -107,7 +107,15 @@ struct HostCardView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
-                    .padding(.bottom, 16)
+                    .padding(.bottom, 12)
+                    
+                    Text("ssh \(profile.username)@\(profile.host)\(profile.port != 22 ? " -p \(profile.port)" : "")")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .padding(.bottom, 16)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .top)

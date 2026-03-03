@@ -744,6 +744,40 @@ struct ContentView: View {
                 }
             )
             
+            // Detect remote OS internally before establishing the UI tab
+            var detectedOS = profile.detectedOS
+            if detectedOS == nil {
+                do {
+                    conn.pauseChannel()
+                    let unameObj = try conn.execute("uname -s")
+                    let osName = unameObj.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    
+                    if osName.contains("darwin") {
+                        detectedOS = "mac"
+                    } else if osName.contains("linux") {
+                        let releaseObj = try conn.execute("cat /etc/os-release 2>/dev/null || cat /usr/lib/os-release 2>/dev/null")
+                        let releaseStr = releaseObj.lowercased()
+                        if releaseStr.contains("ubuntu") {
+                            detectedOS = "ubuntu"
+                        } else if releaseStr.contains("debian") {
+                            detectedOS = "debian"
+                        } else if releaseStr.contains("raspbian") {
+                            detectedOS = "raspberrypi"
+                        } else {
+                            detectedOS = "linux"
+                        }
+                    } else {
+                        detectedOS = osName
+                    }
+                    conn.resumeChannel()
+                } catch {
+                    conn.resumeChannel()
+                    // Silently fail OS detection
+                }
+            }
+            
+            let finalProfile = profile
+            
             let terminalSession = try await MainActor.run {
                 try TerminalSession(connection: conn)
             }
@@ -762,11 +796,21 @@ struct ContentView: View {
                     }
                 }
                 sshTerminalSessions[tabId] = terminalSession
-                sshProfilesByTab[tabId] = profile
+                sshProfilesByTab[tabId] = finalProfile
                 sshViewModeByTab[tabId] = 0
                 sshTerminalMountVersionByTab[tabId] = 0
-                connectingProfiles.remove(profile.id)
+                connectingProfiles.remove(finalProfile.id)
                 connectionTasks.removeValue(forKey: tabId)
+                
+                // Persist detected OS if updated
+                if finalProfile.detectedOS != detectedOS {
+                    var updatedProfile = finalProfile
+                    updatedProfile.detectedOS = detectedOS
+                    Task {
+                        await profileStore.saveProfile(updatedProfile, password: password)
+                    }
+                    sshProfilesByTab[tabId] = updatedProfile
+                }
             }
         } catch {
             await MainActor.run {

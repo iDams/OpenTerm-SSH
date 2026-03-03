@@ -9,6 +9,7 @@ struct ConnectionProfile: Codable, Identifiable, Hashable {
     var username: String
     var privateKeyPath: String
     var savePassword: Bool
+    var detectedOS: String?
 
     init(
         id: UUID = UUID(),
@@ -17,7 +18,8 @@ struct ConnectionProfile: Codable, Identifiable, Hashable {
         port: UInt16 = 22,
         username: String,
         privateKeyPath: String = "",
-        savePassword: Bool = false
+        savePassword: Bool = false,
+        detectedOS: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -26,6 +28,7 @@ struct ConnectionProfile: Codable, Identifiable, Hashable {
         self.username = username
         self.privateKeyPath = privateKeyPath
         self.savePassword = savePassword
+        self.detectedOS = detectedOS
     }
 }
 
