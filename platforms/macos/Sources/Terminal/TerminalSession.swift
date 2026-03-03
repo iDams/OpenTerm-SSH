@@ -7,6 +7,7 @@ public class TerminalSession: ObservableObject, TerminalViewDelegate, Interactiv
     public let terminalView: TerminalView
     private let sshChannel: InteractiveSSHChannel
     private nonisolated(unsafe) var ptyStarted = false
+    private var startScheduled = false
     
     public init(connection: SSHConnection) throws {
         self.terminalView = TerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 450))
@@ -20,7 +21,22 @@ public class TerminalSession: ObservableObject, TerminalViewDelegate, Interactiv
     /// is deferred until the first sizeChanged callback so the column
     /// count matches the real laid-out view.
     public func start() {
-        // PTY will be started on first sizeChanged when view is laid out
+        guard !ptyStarted, !startScheduled else { return }
+        startScheduled = true
+        
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.terminalView.getTerminal().updateFullScreen()
+            self.terminalView.setNeedsDisplay(self.terminalView.bounds)
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self else { return }
+            let cols = max(self.terminalView.getTerminal().cols, 20)
+            let rows = max(self.terminalView.getTerminal().rows, 5)
+            self.startPtyIfNeeded(cols: cols, rows: rows)
+            self.startScheduled = false
+        }
     }
     
     private func startPtyIfNeeded(cols: Int, rows: Int) {

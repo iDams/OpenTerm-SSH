@@ -191,3 +191,59 @@ struct SSHTerminalContainerView: NSViewRepresentable {
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
     }
 }
+
+struct PersistentTerminalSessionContainerView: NSViewRepresentable {
+    @ObservedObject var session: TerminalSession
+    
+    func makeNSView(context: Context) -> NSView {
+        let container = NSView(frame: .zero)
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.black.cgColor
+        attachTerminal(to: container)
+        
+        return container
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {
+        attachTerminal(to: nsView)
+    }
+    
+    static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
+        sessionCleanup(nsView: nsView)
+    }
+    
+    private static func sessionCleanup(nsView: NSView) {
+        nsView.subviews.forEach { $0.removeFromSuperview() }
+    }
+    
+    private func attachTerminal(to container: NSView) {
+        let terminal = session.terminalView
+        
+        // Ensure the reused NSView only ever hosts the active session's terminal.
+        container.subviews
+            .filter { $0 !== terminal }
+            .forEach { staleView in
+                staleView.removeFromSuperview()
+            }
+        
+        if terminal.superview !== container {
+            terminal.removeFromSuperview()
+            terminal.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(terminal)
+            NSLayoutConstraint.activate([
+                terminal.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+                terminal.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+                terminal.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+                terminal.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8)
+            ])
+        }
+        
+        if container.window?.firstResponder !== terminal {
+            DispatchQueue.main.async {
+                terminal.window?.makeFirstResponder(terminal)
+            }
+        }
+        
+        session.start()
+    }
+}

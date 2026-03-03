@@ -3,12 +3,14 @@ import Observation
 
 enum NavigationItem: String, CaseIterable, Identifiable {
     case hosts = "Hosts"
+    case transfers = "Transfers"
     
     var id: String { rawValue }
     
     var icon: String {
         switch self {
         case .hosts: return "server.rack"
+        case .transfers: return "arrow.left.arrow.right.square"
         }
     }
 }
@@ -67,6 +69,7 @@ struct ContentView: View {
     
     @State private var connectingProfiles: Set<UUID> = []
     @State private var connectionTasks: [UUID: Task<Void, Never>] = [:]
+    @State private var sshTerminalSessions: [UUID: TerminalSession] = [:]
     @State private var errorMessage = ""
     
     // Host Key Verification States
@@ -87,74 +90,62 @@ struct ContentView: View {
     @State private var savePasswordInKeychain = false
     @State private var showComingSoon = false
     @State private var selectedTab = 0
-    @State private var viewLayout = ViewLayoutType.grid
-    
-    enum ViewLayoutType {
-        case grid
-        case list
-    }
+    @State private var viewLayout = HostsViewLayoutType.grid
+    @State private var selectedProfileID: ConnectionProfile.ID?
+    @State private var hoveredLayout: HostsViewLayoutType?
     
     var body: some View {
         NavigationSplitView {
             List(selection: $selectedNavItem) {
-                ForEach(NavigationItem.allCases) { item in
-                    Label(item.rawValue, systemImage: item.icon)
-                        .tag(item)
+                Section("Workspace") {
+                    Label(NavigationItem.hosts.rawValue, systemImage: NavigationItem.hosts.icon)
+                        .tag(NavigationItem.hosts)
+                }
+                
+                Section("Transfer") {
+                    Label(NavigationItem.transfers.rawValue, systemImage: NavigationItem.transfers.icon)
+                        .tag(NavigationItem.transfers)
                 }
             }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
         } detail: {
-            VStack(spacing: 0) {
-                // Chrome-style Tab Bar
-                HStack(spacing: 0) {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 0) {
-                            ForEach(tabs, id: \.id) { tab in
-                                chromeTab(for: tab)
-                            }
-                        }
-                        .padding(.top, 6)
-                        .padding(.horizontal, 4)
+            Group {
+                if selectedNavItem == .transfers {
+                    ZStack {
+                        // Keep live sessions mounted but hidden so switching back does not reset them.
+                        activeSessionLayer
+                            .opacity(0)
+                            .allowsHitTesting(false)
+                        
+                        homeWorkspaceView
                     }
-                    Spacer()
-                }
-                .frame(height: 38)
-                .background(Color(NSColor.windowBackgroundColor).opacity(0.85))
-                
-                // Active Tab Content
-                ZStack {
-                    Color(NSColor.textBackgroundColor).ignoresSafeArea()
-                    
-                    if !tabs.contains(where: { $0.id == activeTabId }) {
-                        // Fallback in case state got corrupted
-                        hostsMainView
-                    } else {
-                        ForEach(tabs, id: \.id) { tab in
-                            let isActive = (tab.id == activeTabId)
-                            
-                            Group {
-                                switch tab {
-                                case .home:
-                                    hostsMainView
-                                case .local:
-                                    LocalTerminalContainerView()
-                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                                        .padding(.horizontal, 16)
-                                        .padding(.bottom, 16)
-                                case .connecting(let profile, let id):
-                                    ConnectingTerminalView(profile: profile, errorMessage: errorMessage) {
-                                        cancelConnection(tabId: id)
+                } else {
+                    VStack(spacing: 0) {
+                        // Chrome-style Tab Bar
+                        HStack(spacing: 0) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 0) {
+                                    ForEach(tabs, id: \.id) { tab in
+                                        chromeTab(for: tab)
                                     }
-                                case .ssh(let conn, _):
-                                    connectedDetailView(conn: conn)
                                 }
+                                .padding(.top, 6)
+                                .padding(.horizontal, 4)
                             }
-                            // Keep it in the view hierarchy, but hide/disable it if inactive
-                            .opacity(isActive ? 1 : 0)
-                            .allowsHitTesting(isActive)
-                            // zIndex ensures the active tab is always on top to receive input
-                            .zIndex(isActive ? 1 : 0)
+                            Spacer()
+                        }
+                        .frame(height: 38)
+                        .background(Color(NSColor.windowBackgroundColor).opacity(0.85))
+                        
+                        ZStack {
+                            Color(NSColor.textBackgroundColor).ignoresSafeArea()
+                            activeSessionLayer
+                            
+                            if shouldShowWorkspaceView {
+                                homeWorkspaceView
+                                    .zIndex(10)
+                            }
                         }
                     }
                 }
@@ -202,6 +193,35 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showNewHostSheet) {
             newHostSheet
+        }
+        .modifier(HostsSearchModifier(isActive: isShowingHostsHome, searchText: $searchText))
+        .toolbar {
+            if isShowingHostsHome {
+                ToolbarItemGroup(placement: .navigation) {
+                    Button(action: { showNewHostSheet = true }) {
+                        Label("New Host", systemImage: "plus")
+                    }
+                    .keyboardShortcut("n", modifiers: [.command])
+                    
+                    Button(action: openLocalTerminal) {
+                        Label("Terminal", systemImage: "terminal")
+                    }
+                    
+                    Button(action: { showComingSoon = true }) {
+                        Label("Serial", systemImage: "cable.connector")
+                    }
+                }
+                
+                ToolbarItemGroup(placement: .primaryAction) {
+                    HStack(spacing: 2) {
+                        toolbarLayoutButton(for: .grid)
+                        toolbarLayoutButton(for: .list)
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 3)
+                    .background(Color(NSColor.controlBackgroundColor).opacity(0.92), in: Capsule())
+                }
+            }
         }
     }
     
@@ -274,136 +294,108 @@ struct ContentView: View {
         }
     }
     
-    // MARK: - Hosts Grid View
+    @ViewBuilder
+    private func toolbarLayoutButton(for layout: HostsViewLayoutType) -> some View {
+        Button {
+            viewLayout = layout
+        } label: {
+            Image(systemName: layout.icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+                .background(buttonHighlight(for: layout), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(layout.title)
+        .onHover { isHovering in
+            hoveredLayout = isHovering ? layout : (hoveredLayout == layout ? nil : hoveredLayout)
+        }
+    }
+    
+    private var toolbarButtonFill: Color {
+        Color.primary.opacity(0.09)
+    }
+    
+    private func buttonHighlight(for layout: HostsViewLayoutType) -> Color {
+        if viewLayout == layout || hoveredLayout == layout {
+            return toolbarButtonFill
+        }
+        return .clear
+    }
+    
+    private var homeWorkspaceView: some View {
+        Group {
+            switch selectedNavItem ?? .hosts {
+            case .hosts:
+                HostsHomeView(
+                    profileStore: profileStore,
+                    searchText: $searchText,
+                    viewLayout: $viewLayout,
+                    selectedProfileID: $selectedProfileID,
+                    connectingProfiles: connectingProfiles,
+                    onCreateHost: { showNewHostSheet = true },
+                    onOpenLocalTerminal: openLocalTerminal,
+                    onConnect: { profile in
+                        guard !connectingProfiles.contains(profile.id) else { return }
+                        Task { await applyProfileAndConnect(profile) }
+                    },
+                    onEdit: { profile in
+                        editingProfile = profile
+                    },
+                    onDuplicate: { profile in
+                        Task { await profileStore.duplicateProfile(profile) }
+                    },
+                    onDelete: { profile in
+                        Task { await profileStore.deleteProfile(profile) }
+                    }
+                )
+            case .transfers:
+                TransferWorkspaceView(
+                    profileStore: profileStore,
+                    connectProfile: { profile in
+                        try await openSSHConnection(for: profile)
+                    },
+                    onCreateHost: { showNewHostSheet = true }
+                )
+            }
+        }
+    }
     
     @ViewBuilder
-    private var hostsMainView: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Secondary Toolbar inside detail view
-            HStack {
-                Button(action: { showNewHostSheet = true }) {
-                    Label("New Host", systemImage: "plus")
+    private var activeSessionLayer: some View {
+        if let tab = tabs.first(where: { $0.id == activeTabId }) {
+            switch tab {
+            case .home:
+                Color.clear
+            case .local:
+                LocalTerminalContainerView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
+            case .connecting(let profile, let id):
+                ConnectingTerminalView(profile: profile, errorMessage: errorMessage) {
+                    cancelConnection(tabId: id)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color(NSColor.controlColor))
-                .foregroundStyle(.primary)
+            case .ssh(let conn, _):
+                connectedDetailView(conn: conn, tabId: tab.id)
+            }
+        }
+    }
+    
+    private var isShowingHostsHome: Bool {
+        activeTabId == TabType.home.id && selectedNavItem == .hosts
+    }
+    
+    private var shouldShowWorkspaceView: Bool {
+        selectedNavItem == .transfers || activeTabId == TabType.home.id || !tabs.contains(where: { $0.id == activeTabId })
+    }
 
-                Button(action: {
-                    let newLocalId = UUID()
-                    let localTab = TabType.local(newLocalId)
-                    tabs.append(localTab)
-                    activeTabId = newLocalId
-                }) {
-                    Label("Terminal", systemImage: "terminal")
-                }
-                .buttonStyle(.bordered)
-                
-                Button(action: { showComingSoon = true }) {
-                    Label("Serial", systemImage: "cable.connector")
-                }
-                .buttonStyle(.bordered)
-                
-                Spacer()
-                
-                // Search field inline
-                TextField("Search hosts...", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 220)
-                
-                // Estilo vista
-                HStack(spacing: 0) {
-                    Button(action: { viewLayout = .grid }) {
-                        Image(systemName: "square.grid.2x2")
-                    }
-                    .buttonStyle(.borderless)
-                    .padding(6)
-                    .background(viewLayout == .grid ? Color.primary.opacity(0.1) : Color.clear)
-                    .foregroundStyle(viewLayout == .grid ? .primary : .secondary)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    
-                    Button(action: { viewLayout = .list }) {
-                        Image(systemName: "list.bullet")
-                    }
-                    .buttonStyle(.borderless)
-                    .padding(6)
-                    .background(viewLayout == .list ? Color.primary.opacity(0.1) : Color.clear)
-                    .foregroundStyle(viewLayout == .list ? .primary : .secondary)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-            }
-            .padding()
-            
-            Text("Hosts")
-                .font(.headline)
-                .padding(.horizontal)
-                .padding(.bottom, 8)
-            
-            ScrollView {
-                if filteredProfiles.isEmpty {
-                    VStack {
-                        Spacer(minLength: 100)
-                        Image(systemName: "server.rack")
-                            .font(.system(size: 48))
-                            .foregroundStyle(.tertiary)
-                        Text("No hosts saved")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 8)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                } else {
-                    if viewLayout == .grid {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 280, maximum: 350), spacing: 16)], spacing: 16) {
-                            ForEach(filteredProfiles) { profile in
-                                hostCard(for: profile)
-                            }
-                        }
-                        .padding()
-                    } else {
-                        LazyVStack(spacing: 12) {
-                            ForEach(filteredProfiles) { profile in
-                                hostCard(for: profile)
-                            }
-                        }
-                        .padding()
-                    }
-                }
-            }
-        }
-    }
-    
-    @ViewBuilder
-    private func hostCard(for profile: ConnectionProfile) -> some View {
-        let isProfileConnecting = connectingProfiles.contains(profile.id)
-        HostCardView(
-            profile: profile,
-            isConnecting: isProfileConnecting,
-            onConnect: {
-                guard !isProfileConnecting else { return }
-                Task { await applyProfileAndConnect(profile) }
-            },
-            onEdit: {
-                editingProfile = profile
-            },
-            onDuplicate: {
-                Task { await profileStore.duplicateProfile(profile) }
-            },
-            onDelete: {
-                Task { await profileStore.deleteProfile(profile) }
-            }
-        )
-    }
-    
-    var filteredProfiles: [ConnectionProfile] {
-        if searchText.isEmpty {
-            return profileStore.profiles
-        } else {
-            return profileStore.profiles.filter { profile in
-                profile.name.localizedCaseInsensitiveContains(searchText) ||
-                profile.host.localizedCaseInsensitiveContains(searchText) ||
-                profile.username.localizedCaseInsensitiveContains(searchText)
-            }
-        }
+    private func openLocalTerminal() {
+        let newLocalId = UUID()
+        let localTab = TabType.local(newLocalId)
+        tabs.append(localTab)
+        activeTabId = newLocalId
     }
     
     // MARK: - New Host Sheet
@@ -536,10 +528,10 @@ struct ContentView: View {
     @State private var showModeToggle = false
     
     @ViewBuilder
-    private func connectedDetailView(conn: SSHConnection) -> some View {
+    private func connectedDetailView(conn: SSHConnection, tabId: UUID) -> some View {
         ZStack(alignment: .bottomTrailing) {
             // Terminal view
-            terminalView(conn: conn)
+            terminalView(conn: conn, tabId: tabId)
                 .opacity(selectedTab == 0 ? 1 : 0)
                 .allowsHitTesting(selectedTab == 0)
             
@@ -586,10 +578,16 @@ struct ContentView: View {
     }
     
     @ViewBuilder
-    private func terminalView(conn: SSHConnection) -> some View {
+    private func terminalView(conn: SSHConnection, tabId: UUID) -> some View {
         VStack(spacing: 0) {
-            SSHTerminalContainerView(connection: conn)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let session = sshTerminalSessions[tabId] {
+                PersistentTerminalSessionContainerView(session: session)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ProgressView("Preparing terminal…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+            }
             
             
             if !errorMessage.isEmpty {
@@ -674,6 +672,38 @@ struct ContentView: View {
         showNewHostSheet = false
     }
     
+    private func openSSHConnection(for profile: ConnectionProfile) async throws -> SSHConnection {
+        let normalizedHost = profile.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedUsername = profile.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPrivateKeyPath = profile.privateKeyPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let conn = SSHConnection(host: normalizedHost, port: profile.port, username: normalizedUsername)
+        
+        var passwordToUse = ""
+        if profile.savePassword, let savedPassword = await profileStore.getSavedPassword(for: profile) {
+            passwordToUse = savedPassword
+        }
+        
+        do {
+            try await conn.connectAsync(
+                password: passwordToUse.isEmpty ? nil : passwordToUse,
+                privateKey: normalizedPrivateKeyPath.isEmpty ? nil : normalizedPrivateKeyPath,
+                hostKeyCallback: { info -> SSHHostKeyDecision in
+                    return await withCheckedContinuation { continuation in
+                        Task { @MainActor in
+                            self.pendingHostKeyInfo = info
+                            self.showHostKeyAlert = true
+                            self.hostKeyAlertContinuation = continuation
+                        }
+                    }
+                }
+            )
+            return conn
+        } catch {
+            conn.disconnect()
+            throw error
+        }
+    }
+    
     private func connectToSSH(profile: ConnectionProfile, tabId: UUID, password: String) async {
         let normalizedHost = profile.host.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedUsername = profile.username.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -695,8 +725,13 @@ struct ContentView: View {
                 }
             )
             
+            let terminalSession = try await MainActor.run {
+                try TerminalSession(connection: conn)
+            }
+            
             await MainActor.run {
                 if Task.isCancelled {
+                    terminalSession.stop()
                     conn.disconnect()
                     return
                 }
@@ -707,6 +742,7 @@ struct ContentView: View {
                         tabs[index] = .ssh(conn, tabId)
                     }
                 }
+                sshTerminalSessions[tabId] = terminalSession
                 connectingProfiles.remove(profile.id)
                 connectionTasks.removeValue(forKey: tabId)
             }
@@ -725,6 +761,13 @@ struct ContentView: View {
     
     private func closeTab(id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        
+        if case .ssh(let conn, _) = tabs[index] {
+            sshTerminalSessions[id]?.stop()
+            sshTerminalSessions.removeValue(forKey: id)
+            conn.disconnect()
+        }
+        
         tabs.remove(at: index)
         
         if activeTabId == id {
@@ -750,125 +793,18 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Host Card View Component
-
-struct HostCardView: View {
-    let profile: ConnectionProfile
-    let isConnecting: Bool
-    let onConnect: () -> Void
-    let onEdit: () -> Void
-    let onDuplicate: () -> Void
-    let onDelete: () -> Void
+private struct HostsSearchModifier: ViewModifier {
+    let isActive: Bool
+    @Binding var searchText: String
     
-    @State private var isHovering = false
-    
-    var body: some View {
-        Button(action: onConnect) {
-            HStack(spacing: 12) {
-                Image(systemName: iconName)
-                    .font(.title2)
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(iconColor.gradient)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(profile.name)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text("ssh, \(profile.username)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                
-                Spacer()
-                
-                if isConnecting {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(width: 8, height: 8)
-                        .padding(.trailing, 8)
-                }
-                
-                // Show standard Edit/Delete menu on hover
-                Menu {
-                    Button("Edit", action: onEdit)
-                    Button("Duplicate", action: onDuplicate)
-                    Divider()
-                    Button("Delete", role: .destructive, action: onDelete)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .opacity(isHovering ? 1.0 : 0.0) // Only show when hovering
-            }
-            .padding(14)
-            .background(Color(NSColor.controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .shadow(color: .black.opacity(isHovering ? 0.08 : 0.04), radius: isHovering ? 5 : 3, y: isHovering ? 3 : 1)
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            // Standard macOS right-click / two-finger tap menu
-            Button("Connect", action: onConnect)
-            Divider()
-            Button("Edit", action: onEdit)
-            Button("Duplicate", action: onDuplicate)
-            Divider()
-            Button("Delete", role: .destructive, action: onDelete)
-        }
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isHovering = hovering
-            }
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isActive {
+            content.searchable(text: $searchText, placement: .toolbar, prompt: "Search hosts")
+        } else {
+            content
         }
     }
-    
-    private var iconName: String {
-        let name = profile.name.lowercased()
-        if name.contains("mac") || name.contains("apple") { return "applelogo" }
-        if name.contains("win") { return "window.casement" }
-        if name.contains("ubuntu") || name.contains("linux") { return "terminal" }
-        if name.contains("pi") || name.contains("rasp") { return "cpu" }
-        return "server.rack"
-    }
-    
-    private var iconColor: Color {
-        let name = profile.name.lowercased()
-        if name.contains("mac") || name.contains("apple") { return .gray }
-        if name.contains("win") { return .blue }
-        if name.contains("ubuntu") { return .orange }
-        if name.contains("linux") { return .yellow }
-        if name.contains("pi") || name.contains("rasp") { return .red }
-        return .indigo
-    }
-}
-
-#Preview("HostCard Components") {
-    VStack(spacing: 20) {
-        HostCardView(
-            profile: ConnectionProfile(name: "Production Linux", host: "10.0.0.5", port: 22, username: "root", privateKeyPath: "", savePassword: true),
-            isConnecting: false,
-            onConnect: {},
-            onEdit: {},
-            onDuplicate: {},
-            onDelete: {}
-        )
-        HostCardView(
-            profile: ConnectionProfile(name: "My Mac", host: "localhost", port: 22, username: "marco", privateKeyPath: "", savePassword: false),
-            isConnecting: true,
-            onConnect: {},
-            onEdit: {},
-            onDuplicate: {},
-            onDelete: {}
-        )
-    }
-    .padding()
-    .frame(width: 350)
 }
 
 // MARK: - Legacy Edit View Component
