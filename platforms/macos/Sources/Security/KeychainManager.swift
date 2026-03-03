@@ -15,12 +15,12 @@ public actor KeychainManager {
     
     public init() {}
     
-    public func savePassword(_ password: String, forHost host: String, port: UInt16, username: String) throws {
+    public func savePassword(_ password: String, forProfileID id: UUID) throws {
         guard let data = password.data(using: .utf8) else {
             throw KeychainError.invalidData
         }
         
-        let account = "\(username)@\(host):\(port)"
+        let account = id.uuidString
         
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -33,14 +33,14 @@ public actor KeychainManager {
         let status = SecItemAdd(query as CFDictionary, nil)
         
         if status == errSecDuplicateItem {
-            try updatePassword(password, forHost: host, port: port, username: username)
+            try updatePassword(password, forProfileID: id)
         } else if status != errSecSuccess {
             throw KeychainError.unexpectedStatus(status)
         }
     }
     
-    public func getPassword(forHost host: String, port: UInt16, username: String) throws -> String? {
-        let account = "\(username)@\(host):\(port)"
+    public func getPassword(forProfileID id: UUID) throws -> String? {
+        let account = id.uuidString
         
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -67,12 +67,12 @@ public actor KeychainManager {
         return password
     }
     
-    public func updatePassword(_ password: String, forHost host: String, port: UInt16, username: String) throws {
+    public func updatePassword(_ password: String, forProfileID id: UUID) throws {
         guard let data = password.data(using: .utf8) else {
             throw KeychainError.invalidData
         }
         
-        let account = "\(username)@\(host):\(port)"
+        let account = id.uuidString
         
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -94,8 +94,8 @@ public actor KeychainManager {
         }
     }
     
-    public func deletePassword(forHost host: String, port: UInt16, username: String) throws {
-        let account = "\(username)@\(host):\(port)"
+    public func deletePassword(forProfileID id: UUID) throws {
+        let account = id.uuidString
         
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

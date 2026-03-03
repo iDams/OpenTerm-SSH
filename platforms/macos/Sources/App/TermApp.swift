@@ -6,8 +6,7 @@ struct OpenTermApp: App {
         WindowGroup {
             ContentView()
         }
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified(showsTitle: false))
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 960, height: 620)
         .commands {
             CommandGroup(replacing: .appInfo) {

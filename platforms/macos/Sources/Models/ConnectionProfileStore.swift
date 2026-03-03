@@ -54,7 +54,7 @@ final class ConnectionProfileStore {
         
         if let password = password, !password.isEmpty, updatedProfile.savePassword {
             do {
-                try await keychain.savePassword(password, forHost: updatedProfile.host, port: updatedProfile.port, username: updatedProfile.username)
+                try await keychain.savePassword(password, forProfileID: updatedProfile.id)
             } catch {
                 updatedProfile.savePassword = false
             }
@@ -72,7 +72,7 @@ final class ConnectionProfileStore {
     
     func getSavedPassword(for profile: ConnectionProfile) async -> String? {
         do {
-            return try await keychain.getPassword(forHost: profile.host, port: profile.port, username: profile.username)
+            return try await keychain.getPassword(forProfileID: profile.id)
         } catch {
             return nil
         }
@@ -86,9 +86,18 @@ final class ConnectionProfileStore {
     func deleteProfile(_ profile: ConnectionProfile) async {
         profiles.removeAll { $0.id == profile.id }
         do {
-            try await keychain.deletePassword(forHost: profile.host, port: profile.port, username: profile.username)
+            try await keychain.deletePassword(forProfileID: profile.id)
         } catch {}
         persist()
+    }
+    
+    func duplicateProfile(_ profile: ConnectionProfile) async {
+        var newProfile = profile
+        newProfile.id = UUID()
+        newProfile.name = "\(profile.name) Copy"
+        
+        let existingPassword = await getSavedPassword(for: profile)
+        await saveProfile(newProfile, password: existingPassword)
     }
 
     private func load(fileManager: FileManager) {

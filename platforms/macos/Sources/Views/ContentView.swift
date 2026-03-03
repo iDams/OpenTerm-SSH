@@ -82,10 +82,17 @@ struct ContentView: View {
     @State private var port = "22"
     @State private var username = ""
     @State private var privateKeyPath = defaultPrivateKeyPath() ?? ""
+    @State private var authMethod = 0
     @State private var password = ""
     @State private var savePasswordInKeychain = false
     @State private var showComingSoon = false
     @State private var selectedTab = 0
+    @State private var viewLayout = ViewLayoutType.grid
+    
+    enum ViewLayoutType {
+        case grid
+        case list
+    }
     
     var body: some View {
         NavigationSplitView {
@@ -305,20 +312,23 @@ struct ContentView: View {
                 
                 // Estilo vista
                 HStack(spacing: 0) {
-                    Button(action: {}) {
+                    Button(action: { viewLayout = .grid }) {
                         Image(systemName: "square.grid.2x2")
                     }
                     .buttonStyle(.borderless)
                     .padding(6)
-                    .background(Color.primary.opacity(0.1))
+                    .background(viewLayout == .grid ? Color.primary.opacity(0.1) : Color.clear)
+                    .foregroundStyle(viewLayout == .grid ? .primary : .secondary)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                     
-                    Button(action: {}) {
+                    Button(action: { viewLayout = .list }) {
                         Image(systemName: "list.bullet")
                     }
                     .buttonStyle(.borderless)
                     .padding(6)
-                    .foregroundStyle(.secondary)
+                    .background(viewLayout == .list ? Color.primary.opacity(0.1) : Color.clear)
+                    .foregroundStyle(viewLayout == .list ? .primary : .secondary)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
             }
             .padding()
@@ -342,29 +352,46 @@ struct ContentView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 280, maximum: 350), spacing: 16)], spacing: 16) {
-                        ForEach(filteredProfiles) { profile in
-                            let isProfileConnecting = connectingProfiles.contains(profile.id)
-                            HostCardView(
-                                profile: profile,
-                                isConnecting: isProfileConnecting,
-                                onConnect: {
-                                    guard !isProfileConnecting else { return }
-                                    Task { await applyProfileAndConnect(profile) }
-                                },
-                                onEdit: {
-                                    editingProfile = profile
-                                },
-                                onDelete: {
-                                    Task { await profileStore.deleteProfile(profile) }
-                                }
-                            )
+                    if viewLayout == .grid {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 280, maximum: 350), spacing: 16)], spacing: 16) {
+                            ForEach(filteredProfiles) { profile in
+                                hostCard(for: profile)
+                            }
                         }
+                        .padding()
+                    } else {
+                        LazyVStack(spacing: 12) {
+                            ForEach(filteredProfiles) { profile in
+                                hostCard(for: profile)
+                            }
+                        }
+                        .padding()
                     }
-                    .padding()
                 }
             }
         }
+    }
+    
+    @ViewBuilder
+    private func hostCard(for profile: ConnectionProfile) -> some View {
+        let isProfileConnecting = connectingProfiles.contains(profile.id)
+        HostCardView(
+            profile: profile,
+            isConnecting: isProfileConnecting,
+            onConnect: {
+                guard !isProfileConnecting else { return }
+                Task { await applyProfileAndConnect(profile) }
+            },
+            onEdit: {
+                editingProfile = profile
+            },
+            onDuplicate: {
+                Task { await profileStore.duplicateProfile(profile) }
+            },
+            onDelete: {
+                Task { await profileStore.deleteProfile(profile) }
+            }
+        )
     }
     
     var filteredProfiles: [ConnectionProfile] {
@@ -386,38 +413,122 @@ struct ContentView: View {
     }
     
     private var newHostSheet: some View {
-        NavigationStack {
-            Form {
-                Section("Connection") {
-                    TextField("Profile name", text: $profileName)
-                    TextField("Host", text: $host)
-                    TextField("Port", text: $port)
-                    TextField("Username", text: $username)
-                    TextField("Private key path", text: $privateKeyPath)
+        VStack(spacing: 0) {
+            // Header
+            HStack(spacing: 16) {
+                Image(systemName: "plus")
+                    .font(.title2)
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Color.blue.gradient)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("New Host").font(.headline)
+                    Text("Configure SSH connection details").font(.subheadline).foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            .padding()
+            .background(Color(NSColor.textBackgroundColor))
+            
+            Divider()
+            
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
+                GridRow {
+                    Text("Profile Name:")
+                        .gridColumnAlignment(.trailing)
+                    TextField("", text: $profileName)
+                        .textFieldStyle(.roundedBorder)
                 }
                 
-                Section("Credentials") {
-                    SecureField("Password", text: $password)
-                    Toggle("Save password in Keychain", isOn: $savePasswordInKeychain)
+                GridRow {
+                    Text("Host / IP Address:")
+                    TextField("", text: $host)
+                        .textFieldStyle(.roundedBorder)
+                }
+                
+                GridRow {
+                    Text("Port:")
+                    TextField("", text: $port)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                }
+                
+                Divider()
+                    .gridCellColumns(2)
+                    .padding(.vertical, 4)
+                
+                GridRow {
+                    Text("Username:")
+                    TextField("", text: $username)
+                        .textFieldStyle(.roundedBorder)
+                }
+                
+                GridRow {
+                    Text("Authentication:")
+                    Picker("", selection: $authMethod) {
+                        Text("Password").tag(0)
+                        Text("SSH Key").tag(1)
+                    }
+                    .pickerStyle(.radioGroup)
+                    .horizontalRadioGroupLayout()
+                }
+                
+                if authMethod == 0 {
+                    GridRow {
+                        Text("Password:")
+                        VStack(alignment: .leading, spacing: 6) {
+                            SecureField("", text: $password)
+                                .textFieldStyle(.roundedBorder)
+                            Toggle("Save password in Keychain", isOn: $savePasswordInKeychain)
+                                .controlSize(.small)
+                        }
+                    }
+                } else {
+                    GridRow {
+                        Text("Private Key Path:")
+                        HStack(spacing: 8) {
+                            TextField("", text: $privateKeyPath)
+                                .textFieldStyle(.roundedBorder)
+                            Button {
+                                let panel = NSOpenPanel()
+                                panel.allowsMultipleSelection = false
+                                panel.canChooseDirectories = false
+                                panel.canChooseFiles = true
+                                panel.showsHiddenFiles = true
+                                panel.title = "Select SSH Private Key"
+                                panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ssh", isDirectory: true)
+                                if panel.runModal() == .OK, let url = panel.url {
+                                    privateKeyPath = url.path
+                                }
+                            } label: {
+                                Image(systemName: "folder")
+                                    .frame(height: 18)
+                            }
+                            .help("Select private key file")
+                        }
+                    }
                 }
             }
-            .formStyle(.grouped)
-            .navigationTitle("New Host")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        showNewHostSheet = false
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task { await saveProfile() }
-                    }
+            .padding(20)
+            
+            Divider()
+            
+            HStack {
+                Spacer()
+                Button("Cancel") { showNewHostSheet = false }
+                    .keyboardShortcut(.cancelAction)
+                
+                Button("Save") { Task { await saveProfile() } }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
                     .disabled(profileName.isEmpty || host.isEmpty || username.isEmpty)
-                }
             }
+            .padding()
+            .background(Color(NSColor.textBackgroundColor))
         }
-        .frame(minWidth: 400, minHeight: 450)
+        .frame(width: 480)
     }
     
     // MARK: - Connected State View
@@ -541,21 +652,25 @@ struct ContentView: View {
         guard let parsedPort else { return }
 
         let trimmedName = profileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalPrivateKey = authMethod == 1 ? privateKeyPath : ""
+        let finalSavePassword = authMethod == 0 ? savePasswordInKeychain : false
+        
         let profile = ConnectionProfile(
             name: trimmedName,
             host: host,
             port: parsedPort,
             username: username,
-            privateKeyPath: privateKeyPath,
-            savePassword: savePasswordInKeychain
+            privateKeyPath: finalPrivateKey,
+            savePassword: finalSavePassword
         )
-        await profileStore.saveProfile(profile, password: savePasswordInKeychain ? password : nil)
+        await profileStore.saveProfile(profile, password: finalSavePassword ? password : nil)
         
         // Reset and close
         profileName = ""
         host = ""
         username = ""
         password = ""
+        authMethod = 0
         showNewHostSheet = false
     }
     
@@ -642,6 +757,7 @@ struct HostCardView: View {
     let isConnecting: Bool
     let onConnect: () -> Void
     let onEdit: () -> Void
+    let onDuplicate: () -> Void
     let onDelete: () -> Void
     
     @State private var isHovering = false
@@ -672,21 +788,23 @@ struct HostCardView: View {
                     ProgressView()
                         .controlSize(.small)
                         .frame(width: 8, height: 8)
-                } else {
-                    Circle()
-                        .fill(Color.green.opacity(0.8))
-                        .frame(width: 8, height: 8)
+                        .padding(.trailing, 8)
                 }
                 
+                // Show standard Edit/Delete menu on hover
                 Menu {
                     Button("Edit", action: onEdit)
+                    Button("Duplicate", action: onDuplicate)
+                    Divider()
                     Button("Delete", role: .destructive, action: onDelete)
                 } label: {
-                    Image(systemName: "ellipsis")
-                        .padding(.horizontal, 4)
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .opacity(isHovering ? 1.0 : 0.0) // Only show when hovering
             }
             .padding(14)
             .background(Color(NSColor.controlBackgroundColor))
@@ -694,8 +812,17 @@ struct HostCardView: View {
             .shadow(color: .black.opacity(isHovering ? 0.08 : 0.04), radius: isHovering ? 5 : 3, y: isHovering ? 3 : 1)
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            // Standard macOS right-click / two-finger tap menu
+            Button("Connect", action: onConnect)
+            Divider()
+            Button("Edit", action: onEdit)
+            Button("Duplicate", action: onDuplicate)
+            Divider()
+            Button("Delete", role: .destructive, action: onDelete)
+        }
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(.easeInOut(duration: 0.15)) {
                 isHovering = hovering
             }
         }
@@ -728,6 +855,7 @@ struct HostCardView: View {
             isConnecting: false,
             onConnect: {},
             onEdit: {},
+            onDuplicate: {},
             onDelete: {}
         )
         HostCardView(
@@ -735,6 +863,7 @@ struct HostCardView: View {
             isConnecting: true,
             onConnect: {},
             onEdit: {},
+            onDuplicate: {},
             onDelete: {}
         )
     }
@@ -752,6 +881,7 @@ struct EditProfileView: View {
     @State private var host: String
     @State private var port: String
     @State private var username: String
+    @State private var authMethod: Int
     @State private var privateKeyPath: String
     @State private var savePassword: Bool
     @State private var password: String = ""
@@ -764,55 +894,148 @@ struct EditProfileView: View {
         _host = State(initialValue: profile.host)
         _port = State(initialValue: "\(profile.port)")
         _username = State(initialValue: profile.username)
+        // If it possessed a private key path previously, default to Key mode.
+        _authMethod = State(initialValue: profile.privateKeyPath.isEmpty ? 0 : 1)
         _privateKeyPath = State(initialValue: profile.privateKeyPath)
         _savePassword = State(initialValue: profile.savePassword)
     }
     
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Profile information") {
-                    TextField("Name", text: $name)
-                    TextField("Host", text: $host)
-                    TextField("Port", text: $port)
-                    TextField("Username", text: $username)
-                    TextField("Private key path", text: $privateKeyPath)
+        VStack(spacing: 0) {
+            // Header
+            HStack(spacing: 16) {
+                Image(systemName: "pencil")
+                    .font(.title2)
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Color.indigo.gradient)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Edit Profile").font(.headline)
+                    Text("Modify existing SSH connection").font(.subheadline).foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            .padding()
+            .background(Color(NSColor.textBackgroundColor))
+            
+            Divider()
+            
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
+                GridRow {
+                    Text("Profile Name:")
+                        .gridColumnAlignment(.trailing)
+                    TextField("", text: $name)
+                        .textFieldStyle(.roundedBorder)
                 }
                 
-                Section("Password") {
-                    Toggle("Save password in Keychain", isOn: $savePassword)
-                    if savePassword {
-                        SecureField("New password (leave empty to keep existing)", text: $password)
+                GridRow {
+                    Text("Host / IP Address:")
+                    TextField("", text: $host)
+                        .textFieldStyle(.roundedBorder)
+                }
+                
+                GridRow {
+                    Text("Port:")
+                    TextField("", text: $port)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                }
+                
+                Divider()
+                    .gridCellColumns(2)
+                    .padding(.vertical, 4)
+                
+                GridRow {
+                    Text("Username:")
+                    TextField("", text: $username)
+                        .textFieldStyle(.roundedBorder)
+                }
+                
+                GridRow {
+                    Text("Authentication:")
+                    Picker("", selection: $authMethod) {
+                        Text("Password").tag(0)
+                        Text("SSH Key").tag(1)
+                    }
+                    .pickerStyle(.radioGroup)
+                    .horizontalRadioGroupLayout()
+                }
+                
+                if authMethod == 0 {
+                    GridRow {
+                        Text("Password:")
+                        VStack(alignment: .leading, spacing: 6) {
+                            SecureField("New Password (blank to keep existing)", text: $password)
+                                .textFieldStyle(.roundedBorder)
+                            Toggle("Save password in Keychain", isOn: $savePassword)
+                                .controlSize(.small)
+                        }
+                    }
+                } else {
+                    GridRow {
+                        Text("Private Key Path:")
+                        HStack(spacing: 8) {
+                            TextField("", text: $privateKeyPath)
+                                .textFieldStyle(.roundedBorder)
+                            Button {
+                                let panel = NSOpenPanel()
+                                panel.allowsMultipleSelection = false
+                                panel.canChooseDirectories = false
+                                panel.canChooseFiles = true
+                                panel.showsHiddenFiles = true
+                                panel.title = "Select SSH Private Key"
+                                panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ssh", isDirectory: true)
+                                if panel.runModal() == .OK, let url = panel.url {
+                                    privateKeyPath = url.path
+                                }
+                            } label: {
+                                Image(systemName: "folder")
+                                    .frame(height: 18)
+                            }
+                            .help("Select private key file")
+                        }
                     }
                 }
             }
-            .formStyle(.grouped)
-            .navigationTitle("Edit Profile")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+            .padding(20)
+            
+            Divider()
+            
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                
+                Button("Save") {
+                    let finalPrivateKey = authMethod == 1 ? privateKeyPath : ""
+                    let finalSavePassword = authMethod == 0 ? savePassword : false
+                    
+                    let updated = ConnectionProfile(
+                        id: profile.id,
+                        name: name,
+                        host: host,
+                        port: UInt16(port) ?? 22,
+                        username: username,
+                        privateKeyPath: finalPrivateKey,
+                        savePassword: finalSavePassword
+                    )
+                    
+                    // Only send new password if we are in Password mode and they typed something
+                    let passToSave = (authMethod == 0 && finalSavePassword && !password.isEmpty) ? password : nil
+                    
+                    onSave(updated, passToSave)
+                    dismiss()
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        let updated = ConnectionProfile(
-                            id: profile.id,
-                            name: name,
-                            host: host,
-                            port: UInt16(port) ?? 22,
-                            username: username,
-                            privateKeyPath: privateKeyPath,
-                            savePassword: savePassword
-                        )
-                        onSave(updated, savePassword && !password.isEmpty ? password : nil)
-                        dismiss()
-                    }
-                    .disabled(name.isEmpty || host.isEmpty || username.isEmpty)
-                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .disabled(name.isEmpty || host.isEmpty || username.isEmpty)
             }
+            .padding()
+            .background(Color(NSColor.textBackgroundColor))
         }
-        .frame(minWidth: 400, minHeight: 320)
+        .frame(width: 480)
     }
 }
 
