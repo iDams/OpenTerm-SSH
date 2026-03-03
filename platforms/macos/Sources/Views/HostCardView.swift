@@ -1,20 +1,36 @@
 import SwiftUI
 
 enum ConnectionProfilePresentation {
-    static func iconName(for profile: ConnectionProfile) -> String {
+    enum IconSource {
+        case system(String)
+        case asset(String)
+    }
+
+    static func icon(for profile: ConnectionProfile) -> IconSource {
+        let os = (profile.detectedOS ?? "").lowercased()
         let name = profile.name.lowercased()
-        if name.contains("mac") || name.contains("apple") { return "applelogo" }
-        if name.contains("win") { return "window.casement" }
-        if name.contains("ubuntu") || name.contains("linux") { return "terminal" }
-        if name.contains("pi") || name.contains("rasp") { return "cpu" }
-        return "server.rack"
+        
+        if os.contains("ubuntu") { return .asset("ubuntu") }
+        if os.contains("mac") || os.contains("darwin") { return .asset("apple") }
+        
+        if name.contains("ubuntu") { return .asset("ubuntu") }
+        if name.contains("mac") || name.contains("apple") { return .asset("apple") }
+        
+        if name.contains("win") { return .system("window.casement") }
+        if name.contains("linux") { return .system("terminal") }
+        if name.contains("pi") || name.contains("rasp") { return .system("cpu") }
+        
+        return .system("server.rack")
     }
     
     static func iconColor(for profile: ConnectionProfile) -> Color {
         let name = profile.name.lowercased()
-        if name.contains("mac") || name.contains("apple") { return .gray }
+        let os = (profile.detectedOS ?? "").lowercased()
+        
+        if os.contains("ubuntu") || name.contains("ubuntu") { return Color(red: 0.89, green: 0.34, blue: 0.13) }
+        if os.contains("mac") || os.contains("darwin") || name.contains("mac") || name.contains("apple") { return .gray }
+        
         if name.contains("win") { return .blue }
-        if name.contains("ubuntu") { return .orange }
         if name.contains("linux") { return .yellow }
         if name.contains("pi") || name.contains("rasp") { return .red }
         return .indigo
@@ -61,41 +77,40 @@ struct HostCardView: View {
     
     private var gridBody: some View {
         Button(action: onConnect) {
-            VStack(alignment: .leading, spacing: 14) {
+            ZStack(alignment: .top) {
+                // Top-floating badges
                 HStack(alignment: .top) {
-                    hostIcon(size: 50, cornerRadius: 14)
+                    if isConnecting {
+                        connectionBadge
+                    } else {
+                        authBadge
+                    }
                     
                     Spacer()
                     
-                    HStack(spacing: 8) {
-                        if isConnecting {
-                            connectionBadge
-                        } else {
-                            authBadge
-                        }
-                        hostMenu
-                    }
+                    hostMenu
                 }
+                .padding(14)
                 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(profile.name)
-                        .font(.headline)
-                        .lineLimit(1)
+                // Centered content
+                VStack(spacing: 12) {
+                    hostIcon(size: 72, cornerRadius: 18)
+                        .padding(.top, 24)
                     
-                    Text(profile.host)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .lineLimit(1)
-                    
-                    Text(secondarySummary)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    VStack(spacing: 4) {
+                        Text(profile.name)
+                            .font(.system(size: 16, weight: .bold))
+                            .lineLimit(1)
+                        
+                        Text(profile.host)
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(.bottom, 16)
                 }
             }
-            .padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .top)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -150,12 +165,23 @@ struct HostCardView: View {
     }
     
     private func hostIcon(size: CGFloat, cornerRadius: CGFloat) -> some View {
-        Image(systemName: ConnectionProfilePresentation.iconName(for: profile))
-            .font(.system(size: size * 0.42, weight: .medium))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .background(ConnectionProfilePresentation.iconColor(for: profile).gradient)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        Group {
+            switch ConnectionProfilePresentation.icon(for: profile) {
+            case .system(let name):
+                Image(systemName: name)
+                    .font(.system(size: size * 0.42, weight: .medium))
+            case .asset(let name):
+                Image(name)
+                    .resizable()
+                    .renderingMode(.template)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: size * 0.46, height: size * 0.46)
+            }
+        }
+        .foregroundStyle(.white)
+        .frame(width: size, height: size)
+        .background(ConnectionProfilePresentation.iconColor(for: profile).gradient)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
     
     private var hostMenu: some View {
@@ -165,7 +191,7 @@ struct HostCardView: View {
             Divider()
             Button("Delete", role: .destructive, action: onDelete)
         } label: {
-            Image(systemName: "ellipsis.circle")
+            Image(systemName: "ellipsis")
                 .font(.system(size: 16))
                 .foregroundStyle(.secondary)
                 .frame(width: 28, height: 28)
@@ -223,7 +249,7 @@ struct HostCardView: View {
             onDelete: {}
         )
         HostCardView(
-            profile: ConnectionProfile(name: "My Mac", host: "localhost", port: 22, username: "marco", privateKeyPath: "", savePassword: false),
+            profile: ConnectionProfile(name: "My Mac", host: "localhost", port: 22, username: "user", privateKeyPath: "", savePassword: false),
             isConnecting: true,
             isListStyle: true,
             onConnect: {},
