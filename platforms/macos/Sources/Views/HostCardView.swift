@@ -60,13 +60,76 @@ struct HostCardView: View {
     }
     
     private var gridBody: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                hostIcon(size: 50, cornerRadius: 14)
+        Button(action: onConnect) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top) {
+                    hostIcon(size: 50, cornerRadius: 14)
+                    
+                    Spacer()
+                    
+                    HStack(spacing: 8) {
+                        if isConnecting {
+                            connectionBadge
+                        } else {
+                            authBadge
+                        }
+                        hostMenu
+                    }
+                }
                 
-                Spacer()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(profile.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                    
+                    Text(profile.host)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                    
+                    Text(secondarySummary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isConnecting)
+        .background(cardBackground)
+        .overlay(cardBorder)
+        .shadow(color: .black.opacity(isHovering ? 0.08 : 0.02), radius: isHovering ? 8 : 2, y: isHovering ? 4 : 1)
+    }
+    
+    private var listBody: some View {
+        Button(action: onConnect) {
+            HStack(spacing: 14) {
+                hostIcon(size: 42, cornerRadius: 12)
                 
-                HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(profile.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                    
+                    Text(profile.host)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                    
+                    Text(secondarySummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                
+                Spacer(minLength: 12)
+                
+                HStack(spacing: 10) {
                     if isConnecting {
                         connectionBadge
                     } else {
@@ -75,81 +138,13 @@ struct HostCardView: View {
                     hostMenu
                 }
             }
-            
-            VStack(alignment: .leading, spacing: 6) {
-                Text(profile.name)
-                    .font(.headline)
-                    .lineLimit(1)
-                
-                Text(profile.host)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .lineLimit(1)
-                
-                Text(secondarySummary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            
-            HStack(spacing: 0) {
-                Button(action: onConnect) {
-                    Label(isConnecting ? "Connecting..." : "Connect", systemImage: isConnecting ? "hourglass" : "arrow.right.circle.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isConnecting)
-            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(cardBackground)
-        .overlay(cardBorder)
-        .shadow(color: .black.opacity(isHovering ? 0.10 : 0.05), radius: isHovering ? 10 : 4, y: isHovering ? 6 : 2)
-    }
-    
-    private var listBody: some View {
-        HStack(spacing: 14) {
-            hostIcon(size: 42, cornerRadius: 12)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(profile.name)
-                    .font(.headline)
-                    .lineLimit(1)
-                
-                Text(profile.host)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .lineLimit(1)
-                
-                Text(secondarySummary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            
-            Spacer(minLength: 12)
-            
-            HStack(spacing: 10) {
-                if isConnecting {
-                    connectionBadge
-                } else {
-                    authBadge
-                }
-            }
-            
-            Button(action: onConnect) {
-                Label(isConnecting ? "Connecting..." : "Connect", systemImage: isConnecting ? "hourglass" : "arrow.right.circle.fill")
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(isConnecting)
-            
-            hostMenu
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.plain)
+        .disabled(isConnecting)
         .background(cardBackground)
         .overlay(cardBorder)
     }
@@ -212,7 +207,7 @@ struct HostCardView: View {
     
     private var cardBorder: some View {
         RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .stroke(Color.primary.opacity(isHovering ? 0.10 : 0.05), lineWidth: 1)
+            .stroke(isHovering ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.06), lineWidth: isHovering ? 1.5 : 1)
     }
 }
 

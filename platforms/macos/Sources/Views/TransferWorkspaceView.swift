@@ -434,6 +434,7 @@ private struct TransferPaneView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
                 .frame(width: 190)
             }
             

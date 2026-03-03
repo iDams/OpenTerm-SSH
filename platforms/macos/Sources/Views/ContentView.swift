@@ -3,7 +3,7 @@ import Observation
 
 enum NavigationItem: String, CaseIterable, Identifiable {
     case hosts = "Hosts"
-    case transfers = "Transfers"
+    case transfers = "SFTP"
     
     var id: String { rawValue }
     
@@ -70,6 +70,9 @@ struct ContentView: View {
     @State private var connectingProfiles: Set<UUID> = []
     @State private var connectionTasks: [UUID: Task<Void, Never>] = [:]
     @State private var sshTerminalSessions: [UUID: TerminalSession] = [:]
+    @State private var sshProfilesByTab: [UUID: ConnectionProfile] = [:]
+    @State private var sshViewModeByTab: [UUID: Int] = [:]
+    @State private var sshTerminalMountVersionByTab: [UUID: Int] = [:]
     @State private var errorMessage = ""
     
     // Host Key Verification States
@@ -89,7 +92,6 @@ struct ContentView: View {
     @State private var password = ""
     @State private var savePasswordInKeychain = false
     @State private var showComingSoon = false
-    @State private var selectedTab = 0
     @State private var viewLayout = HostsViewLayoutType.grid
     @State private var selectedProfileID: ConnectionProfile.ID?
     @State private var hoveredLayout: HostsViewLayoutType?
@@ -112,14 +114,7 @@ struct ContentView: View {
         } detail: {
             Group {
                 if selectedNavItem == .transfers {
-                    ZStack {
-                        // Keep live sessions mounted but hidden so switching back does not reset them.
-                        activeSessionLayer
-                            .opacity(0)
-                            .allowsHitTesting(false)
-                        
-                        homeWorkspaceView
-                    }
+                    homeWorkspaceView
                 } else {
                     VStack(spacing: 0) {
                         // Chrome-style Tab Bar
@@ -195,6 +190,9 @@ struct ContentView: View {
             newHostSheet
         }
         .modifier(HostsSearchModifier(isActive: isShowingHostsHome, searchText: $searchText))
+        .onChange(of: activeTabId) {
+            refreshTerminalMountIfNeeded(for: activeTabId)
+        }
         .toolbar {
             if isShowingHostsHome {
                 ToolbarItemGroup(placement: .navigation) {
@@ -529,6 +527,8 @@ struct ContentView: View {
     
     @ViewBuilder
     private func connectedDetailView(conn: SSHConnection, tabId: UUID) -> some View {
+        let selectedTab = sshViewModeByTab[tabId, default: 0]
+        
         ZStack(alignment: .bottomTrailing) {
             // Terminal view
             terminalView(conn: conn, tabId: tabId)
@@ -536,13 +536,23 @@ struct ContentView: View {
                 .allowsHitTesting(selectedTab == 0)
             
             // SFTP view - only mount when needed to avoid racing with terminal channel
-            if selectedTab == 1 {
-                SFTPView(connection: conn)
+            if selectedTab == 1, let profile = sshProfilesByTab[tabId] {
+                SFTPView(
+                    profile: profile,
+                    connectProfile: { profile in
+                        try await openSSHConnection(for: profile)
+                    }
+                )
+                .id(tabId)
             }
             
             // Floating toggle capsule
             HStack(spacing: 2) {
-                Button(action: { withAnimation(.easeInOut(duration: 0.2)) { selectedTab = 0 } }) {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        sshViewModeByTab[tabId] = 0
+                    }
+                }) {
                     Image(systemName: "terminal")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(selectedTab == 0 ? .white : .secondary)
@@ -552,7 +562,11 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 
-                Button(action: { withAnimation(.easeInOut(duration: 0.2)) { selectedTab = 1 } }) {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        sshViewModeByTab[tabId] = 1
+                    }
+                }) {
                     Image(systemName: "folder")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(selectedTab == 1 ? .white : .secondary)
@@ -581,7 +595,12 @@ struct ContentView: View {
     private func terminalView(conn: SSHConnection, tabId: UUID) -> some View {
         VStack(spacing: 0) {
             if let session = sshTerminalSessions[tabId] {
-                PersistentTerminalSessionContainerView(session: session)
+                let mountVersion = sshTerminalMountVersionByTab[tabId, default: 0]
+                PersistentTerminalSessionContainerView(
+                    session: session,
+                    isVisible: activeTabId == tabId && selectedNavItem == .hosts
+                )
+                    .id("\(tabId.uuidString)-\(mountVersion)")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ProgressView("Preparing terminal…")
@@ -743,6 +762,9 @@ struct ContentView: View {
                     }
                 }
                 sshTerminalSessions[tabId] = terminalSession
+                sshProfilesByTab[tabId] = profile
+                sshViewModeByTab[tabId] = 0
+                sshTerminalMountVersionByTab[tabId] = 0
                 connectingProfiles.remove(profile.id)
                 connectionTasks.removeValue(forKey: tabId)
             }
@@ -765,6 +787,9 @@ struct ContentView: View {
         if case .ssh(let conn, _) = tabs[index] {
             sshTerminalSessions[id]?.stop()
             sshTerminalSessions.removeValue(forKey: id)
+            sshProfilesByTab.removeValue(forKey: id)
+            sshViewModeByTab.removeValue(forKey: id)
+            sshTerminalMountVersionByTab.removeValue(forKey: id)
             conn.disconnect()
         }
         
@@ -790,6 +815,14 @@ struct ContentView: View {
         case .ed25519Cert: return "Ed25519 (Certificate)"
         case .unknown: return "Unknown"
         }
+    }
+    
+    private func refreshTerminalMountIfNeeded(for tabId: UUID) {
+        guard tabs.contains(where: {
+            if case .ssh(_, let id) = $0 { return id == tabId }
+            return false
+        }) else { return }
+        sshTerminalMountVersionByTab[tabId, default: 0] += 1
     }
 }
 

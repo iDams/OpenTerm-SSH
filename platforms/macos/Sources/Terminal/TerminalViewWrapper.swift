@@ -194,6 +194,7 @@ struct SSHTerminalContainerView: NSViewRepresentable {
 
 struct PersistentTerminalSessionContainerView: NSViewRepresentable {
     @ObservedObject var session: TerminalSession
+    let isVisible: Bool
     
     func makeNSView(context: Context) -> NSView {
         let container = NSView(frame: .zero)
@@ -205,7 +206,7 @@ struct PersistentTerminalSessionContainerView: NSViewRepresentable {
     }
     
     func updateNSView(_ nsView: NSView, context: Context) {
-        attachTerminal(to: nsView)
+        attachTerminal(to: nsView, isVisible: isVisible)
     }
     
     static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
@@ -216,7 +217,7 @@ struct PersistentTerminalSessionContainerView: NSViewRepresentable {
         nsView.subviews.forEach { $0.removeFromSuperview() }
     }
     
-    private func attachTerminal(to container: NSView) {
+    private func attachTerminal(to container: NSView, isVisible: Bool = true) {
         let terminal = session.terminalView
         
         // Ensure the reused NSView only ever hosts the active session's terminal.
@@ -238,9 +239,14 @@ struct PersistentTerminalSessionContainerView: NSViewRepresentable {
             ])
         }
         
-        if container.window?.firstResponder !== terminal {
+        if isVisible {
             DispatchQueue.main.async {
-                terminal.window?.makeFirstResponder(terminal)
+                terminal.getTerminal().updateFullScreen()
+                terminal.setNeedsDisplay(terminal.bounds)
+                terminal.displayIfNeeded()
+                if container.window?.firstResponder !== terminal {
+                    terminal.window?.makeFirstResponder(terminal)
+                }
             }
         }
         

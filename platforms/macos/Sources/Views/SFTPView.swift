@@ -2,7 +2,10 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SFTPView: View {
-    let connection: SSHConnection
+    let profile: ConnectionProfile
+    let connectProfile: (ConnectionProfile) async throws -> SSHConnection
+    
+    @State private var browserConnection: SSHConnection?
     @State private var sftp: SSHSFTP?
     @State private var currentPath = "~"
     @State private var files: [SSHFileInfo] = []
@@ -16,22 +19,42 @@ struct SFTPView: View {
     @State private var newName = ""
     
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 20) {
+            browserCard
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 18)
+        .background(background)
+    }
+    
+    private var browserCard: some View {
+        VStack(alignment: .leading, spacing: 18) {
             pathBar
             
             if isLoading {
-                ProgressView("Loading...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                loadingView
             } else if let sftp = sftp, sftp.isConnected {
                 fileList
             } else {
                 disconnectedView
             }
         }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color(NSColor.controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+        )
         .onAppear {
-            if sftp == nil {
+            if sftp == nil && !isLoading {
                 initSFTP()
             }
+        }
+        .onDisappear {
+            disconnectSFTP()
         }
         .alert("New folder", isPresented: $showCreateFolder) {
             TextField("Name", text: $newFolderName)
@@ -64,28 +87,56 @@ struct SFTPView: View {
         }
     }
     
+    private var background: some View {
+        LinearGradient(
+            colors: [
+                Color(NSColor.windowBackgroundColor),
+                Color.cyan.opacity(0.03),
+                Color(NSColor.textBackgroundColor)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .ignoresSafeArea()
+    }
+    
     // MARK: - Path bar with inline action buttons
     private var pathBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Button {
                 navigateToParent()
             } label: {
-                Image(systemName: "chevron.left")
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 16, weight: .medium))
+                    .frame(width: 34, height: 34)
             }
+            .buttonStyle(.borderless)
             .disabled(currentPath == "/" || isLoading)
             
-            Text(currentPath)
-                .font(.system(.body, design: .monospaced))
-                .lineLimit(1)
-                .truncationMode(.head)
+            HStack(spacing: 10) {
+                Image(systemName: "folder")
+                    .foregroundStyle(.secondary)
+                
+                Text(currentPath)
+                    .font(.system(.body, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .textSelection(.enabled)
+                
+                Spacer(minLength: 8)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 42)
+            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             
             Spacer()
             
-            // Inline action buttons (only visible inside SFTP)
             Button {
                 refreshList()
             } label: {
                 Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 16, weight: .medium))
+                    .frame(width: 34, height: 34)
             }
             .buttonStyle(.borderless)
             .disabled(sftp == nil || isLoading)
@@ -94,6 +145,8 @@ struct SFTPView: View {
                 showUploadPicker = true
             } label: {
                 Image(systemName: "arrow.up.circle")
+                    .font(.system(size: 16, weight: .medium))
+                    .frame(width: 34, height: 34)
             }
             .buttonStyle(.borderless)
             .disabled(sftp == nil || isLoading)
@@ -102,73 +155,101 @@ struct SFTPView: View {
                 showCreateFolder = true
             } label: {
                 Image(systemName: "folder.badge.plus")
+                    .font(.system(size: 16, weight: .medium))
+                    .frame(width: 34, height: 34)
             }
             .buttonStyle(.borderless)
             .disabled(sftp == nil || isLoading)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 10)
-        .background(Color(NSColor.controlBackgroundColor))
     }
     
     // MARK: - File list
     private var fileList: some View {
-        List {
+        VStack(alignment: .leading, spacing: 10) {
             if !errorMessage.isEmpty {
                 Text(errorMessage)
+                    .font(.caption)
                     .foregroundStyle(.red)
             }
             
-            ForEach(files, id: \.name) { file in
-                HStack {
-                    Image(systemName: file.isDirectory ? "folder.fill" : iconForFile(file.name))
-                        .foregroundStyle(file.isDirectory ? .blue : .gray)
-                    
-                    Text(file.name)
-                        .lineLimit(1)
-                    
-                    Spacer()
-                    
-                    if !file.isDirectory && file.size > 0 {
-                        Text(formatFileSize(file.size))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if file.isDirectory {
-                        navigateTo(file.name)
-                    }
-                }
-                .contextMenu {
-                    if !file.isDirectory {
-                        Button {
-                            downloadFile(file)
-                        } label: {
-                            Label("Download", systemImage: "arrow.down.circle")
-                        }
-                    }
-                    
-                    Button {
-                        selectedItem = file
-                        newName = file.name
-                        showRename = true
-                    } label: {
-                        Label("Rename", systemImage: "pencil")
-                    }
-                    
-                    Divider()
-                    
-                    Button(role: .destructive) {
-                        deleteItem(file)
-                    } label: {
-                        Label("Delete", systemImage: "trash")
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(files, id: \.name) { file in
+                        fileRow(file)
                     }
                 }
             }
+            .scrollIndicators(.hidden)
         }
-        .listStyle(.inset)
+    }
+    
+    private func fileRow(_ file: SSHFileInfo) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: file.isDirectory ? "folder.fill" : iconForFile(file.name))
+                .foregroundStyle(file.isDirectory ? .blue : .secondary)
+                .font(.system(size: 16, weight: .medium))
+                .frame(width: 22)
+            
+            VStack(alignment: .leading, spacing: 3) {
+                Text(file.name)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                
+                Text(file.isDirectory ? remoteChildPath(for: file.name) : fileKindLabel(for: file.name))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            
+            Spacer()
+            
+            if !file.isDirectory && file.size > 0 {
+                Text(formatFileSize(file.size))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            
+            if file.isDirectory {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if file.isDirectory {
+                navigateTo(file.name)
+            }
+        }
+        .contextMenu {
+            if !file.isDirectory {
+                Button {
+                    downloadFile(file)
+                } label: {
+                    Label("Download", systemImage: "arrow.down.circle")
+                }
+            }
+            
+            Button {
+                selectedItem = file
+                newName = file.name
+                showRename = true
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+            
+            Divider()
+            
+            Button(role: .destructive) {
+                deleteItem(file)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
     }
     
     private var disconnectedView: some View {
@@ -190,7 +271,18 @@ struct SFTPView: View {
             }
             .buttonStyle(.borderedProminent)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, minHeight: 420)
+    }
+    
+    private var loadingView: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+                .controlSize(.large)
+            Text("Loading remote contents…")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 420)
     }
     
     // MARK: - SFTP Operations
@@ -201,26 +293,28 @@ struct SFTPView: View {
         
         Task.detached {
             do {
-                let newSFTP = try SSHSFTP(connection: connection)
+                let dedicatedConnection = try await connectProfile(profile)
+                let newSFTP = try SSHSFTP(connection: dedicatedConnection)
                 
                 // Resolve the user's home directory
                 var resolvedHome = "/"
                 do {
-                    connection.pauseChannel()
+                    dedicatedConnection.pauseChannel()
                     Thread.sleep(forTimeInterval: 0.05)
-                    let output = try connection.execute("echo $HOME")
-                    connection.resumeChannel()
+                    let output = try dedicatedConnection.execute("echo $HOME")
+                    dedicatedConnection.resumeChannel()
                     let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty {
                         resolvedHome = trimmed
                     }
                 } catch {
-                    connection.resumeChannel()
+                    dedicatedConnection.resumeChannel()
                     // Fallback to root if we can't determine home
                 }
                 
                 let homePath = resolvedHome
                 await MainActor.run {
+                    self.browserConnection = dedicatedConnection
                     self.sftp = newSFTP
                     self.currentPath = homePath
                     self.isLoading = false
@@ -228,6 +322,7 @@ struct SFTPView: View {
                 await listDirectory()
             } catch {
                 await MainActor.run {
+                    self.disconnectSFTP()
                     self.errorMessage = "Error starting SFTP: \(error.localizedDescription)"
                     self.isLoading = false
                 }
@@ -236,7 +331,7 @@ struct SFTPView: View {
     }
     
     private func listDirectory() async {
-        guard sftp != nil else { return }
+        guard sftp != nil, let browserConnection else { return }
         
         await MainActor.run {
             isLoading = true
@@ -247,11 +342,11 @@ struct SFTPView: View {
             // Use shell command to get files WITH directory markers
             let escapedPath = currentPath.replacingOccurrences(of: "'", with: "'\\''")
             
-            connection.pauseChannel()
+            browserConnection.pauseChannel()
             Thread.sleep(forTimeInterval: 0.05)
             // Execute in a clean bash shell to prevent .bashrc / MOTD texts from corrupting the file list output
-            let output = try connection.execute("bash --noprofile --norc -c \"ls -1FA '\(escapedPath)' 2>/dev/null || ls -1F '\(escapedPath)'\"")
-            connection.resumeChannel()
+            let output = try browserConnection.execute("bash --noprofile --norc -c \"ls -1FA '\(escapedPath)' 2>/dev/null || ls -1F '\(escapedPath)'\"")
+            browserConnection.resumeChannel()
             
             // Filter out any stray empty lines or trailing newlines
             let lines = output.split(whereSeparator: \.isNewline).map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
@@ -449,5 +544,25 @@ struct SFTPView: View {
         if size < 1024 * 1024 { return String(format: "%.1f KB", Double(size) / 1024) }
         if size < 1024 * 1024 * 1024 { return String(format: "%.1f MB", Double(size) / (1024 * 1024)) }
         return String(format: "%.1f GB", Double(size) / (1024 * 1024 * 1024))
+    }
+    
+    private func remoteChildPath(for name: String) -> String {
+        currentPath == "/" ? "/\(name)" : "\(currentPath)/\(name)"
+    }
+    
+    private func fileKindLabel(for name: String) -> String {
+        let ext = (name as NSString).pathExtension.lowercased()
+        if ext.isEmpty {
+            return remoteChildPath(for: name)
+        }
+        return ext.uppercased() + " file"
+    }
+    
+    @MainActor
+    private func disconnectSFTP() {
+        sftp?.disconnect()
+        browserConnection?.disconnect()
+        sftp = nil
+        browserConnection = nil
     }
 }

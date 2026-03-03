@@ -84,20 +84,6 @@ struct HostsHomeView: View {
                 Label(searchSummary, systemImage: "magnifyingglass")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                
-                Spacer()
-                
-                HStack(spacing: 10) {
-                    Button(action: onOpenLocalTerminal) {
-                        Label("Open Local Terminal", systemImage: "terminal")
-                    }
-                    .buttonStyle(.bordered)
-                    
-                    Button(action: onCreateHost) {
-                        Label("Add Host", systemImage: "plus")
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
             }
         }
         .padding(24)
@@ -122,19 +108,6 @@ struct HostsHomeView: View {
     
     private var hostsContentSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text(viewLayout == .grid ? "Host Cards" : "Host List")
-                    .font(.headline)
-                
-                Spacer()
-                
-                if !filteredProfiles.isEmpty {
-                    Text("\(filteredProfiles.count) result\(filteredProfiles.count == 1 ? "" : "s")")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            
             if filteredProfiles.isEmpty {
                 emptyHostsState
             } else if viewLayout == .grid {
@@ -316,16 +289,8 @@ struct HostsHomeView: View {
     }
     
     private var hostsBackground: some View {
-        LinearGradient(
-            colors: [
-                Color(NSColor.windowBackgroundColor),
-                Color.accentColor.opacity(0.035),
-                Color(NSColor.textBackgroundColor)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
+        Color(NSColor.windowBackgroundColor)
+            .ignoresSafeArea()
     }
     
     private func statPill(title: String, value: String) -> some View {
