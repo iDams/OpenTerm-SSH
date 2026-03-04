@@ -1056,82 +1056,106 @@ struct EditProfileView: View {
     ContentView()
 }
 
-// MARK: - Animated Binary Connecting View
+// MARK: - Animated Connecting View (Pulse Style)
 
 struct ConnectingTerminalView: View {
     let profile: ConnectionProfile
     let errorMessage: String
     let onCancel: () -> Void
     
-    @State private var binaryLines: [String] = []
-    let timer = Timer.publish(every: 0.08, on: .main, in: .common).autoconnect()
+    @State private var isPulsing = false
+    @State private var loadingTextIndex = 0
+    
+    let loadingMessages = [
+        "Initializing secure pipeline...",
+        "Negotiating cryptographic keys...",
+        "Verifying host identity...",
+        "Establishing data stream..."
+    ]
+    
+    let timer = Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()
     
     var body: some View {
-        VStack {
+        VStack(spacing: 32) {
             Spacer()
             
-            // Subtle animated binary or dot matrix
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(Array(binaryLines.enumerated()), id: \.offset) { _, line in
-                    Text(line)
-                        .font(.system(size: 14, weight: .bold, design: .monospaced))
-                        .foregroundColor(Color.green.opacity(0.5))
-                        .lineLimit(1)
+            // Central Pulsing Icon
+            ZStack {
+                // Outer glow ring
+                Circle()
+                    .fill(ConnectionProfilePresentation.iconColor(for: profile).opacity(0.15))
+                    .frame(width: 140, height: 140)
+                    .scaleEffect(isPulsing ? 1.2 : 0.8)
+                    .opacity(isPulsing ? 1.0 : 0.4)
+                
+                // Actual Icon
+                Group {
+                    switch ConnectionProfilePresentation.icon(for: profile) {
+                    case .system(let name):
+                        Image(systemName: name)
+                            .font(.system(size: 48, weight: .light))
+                    case .asset(let name):
+                        Image(name)
+                            .resizable()
+                            .renderingMode(.template)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 54, height: 54)
+                    }
+                }
+                .foregroundStyle(.white)
+                .frame(width: 96, height: 96)
+                .background(ConnectionProfilePresentation.iconColor(for: profile).gradient)
+                .clipShape(Circle())
+                .shadow(color: ConnectionProfilePresentation.iconColor(for: profile).opacity(0.3), radius: 10, y: 4)
+            }
+            
+            // Text & Progress
+            VStack(spacing: 12) {
+                if errorMessage.isEmpty {
+                    Text(loadingMessages[loadingTextIndex])
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                        .scaleEffect(1.0)
+                        .animation(.easeIn(duration: 0.3), value: loadingTextIndex)
+                    
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.largeTitle)
+                        .foregroundColor(.red)
+                        .padding(.bottom, 4)
+                    Text(errorMessage)
+                        .font(.headline)
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.center)
                 }
             }
-            .frame(width: 320, height: 80, alignment: .bottomLeading)
-            .clipped()
             
-            Spacer().frame(height: 30)
-            
-            if errorMessage.isEmpty {
-                ProgressView()
-                    .controlSize(.small)
-                    .padding(.bottom, 8)
-                
-                Text("Negotiating link to \(profile.username)@\(profile.host)...")
-                    .font(.headline)
-                    .foregroundColor(.secondary)
-            } else {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.largeTitle)
-                    .foregroundColor(.red)
-                    .padding(.bottom, 8)
-                Text(errorMessage)
-                    .font(.headline)
-                    .foregroundColor(.red)
-                    .multilineTextAlignment(.center)
-            }
-            
-            Spacer().frame(height: 20)
+            Spacer()
             
             Button("Cancel", action: onCancel)
                 .buttonStyle(.plain)
                 .foregroundColor(.primary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
                 .background(Color(NSColor.controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(Color.secondary.opacity(0.3), lineWidth: 1))
             
-            Spacer()
+            Spacer().frame(height: 30)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.textBackgroundColor).ignoresSafeArea())
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 16)
-        .padding(.bottom, 16)
-        .onReceive(timer) { _ in
-            guard errorMessage.isEmpty else { return }
-            let newLine = (0..<40).map { _ in ["0", "1", " ", " ", " "].randomElement()! }.joined()
-            binaryLines.append(newLine)
-            if binaryLines.count > 5 {
-                binaryLines.removeFirst()
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                isPulsing = true
             }
         }
-        .onAppear {
-            for _ in 0..<5 {
-                binaryLines.append("")
+        .onReceive(timer) { _ in
+            guard errorMessage.isEmpty else { return }
+            withAnimation {
+                loadingTextIndex = (loadingTextIndex + 1) % loadingMessages.count
             }
         }
     }

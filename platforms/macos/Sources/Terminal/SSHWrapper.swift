@@ -589,9 +589,13 @@ public class InteractiveSSHChannel: @unchecked Sendable {
     private let connection: SSHConnection
     public weak var delegate: InteractiveSSHChannelDelegate?
     private let queue = DispatchQueue(label: "com.openterm.ssh.interactive", qos: .userInteractive)
+    private let stateLock = NSLock()
     private var isRunning = false
     private var isPaused = false
+    private var isClosing = false
+    private var pollScheduled = false
     private let pauseSemaphore = DispatchSemaphore(value: 0)
+    private let closeSemaphore = DispatchSemaphore(value: 0)
     
     public init(connection: SSHConnection) throws {
         self.connection = connection
@@ -648,133 +652,211 @@ public class InteractiveSSHChannel: @unchecked Sendable {
     }
     
     public func startReading() {
-        guard !isRunning, rawPointer != nil else { return }
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard !isRunning, rawPointer != nil, !isClosing else { return }
         isRunning = true
+        isPaused = false
         connection.registerChannel(self)
-        poll()
+        schedulePollLocked()
     }
     
     /// Synchronously pauses the polling loop. Blocks until the loop has fully stopped.
     func pause() {
-        guard isRunning, !isPaused else { return }
+        stateLock.lock()
+        guard isRunning, !isPaused, !isClosing else {
+            stateLock.unlock()
+            return
+        }
         isPaused = true
+        stateLock.unlock()
         // Wait for the polling loop to signal it has stopped (up to 2 seconds)
         _ = pauseSemaphore.wait(timeout: .now() + 2.0)
     }
     
     func resume() {
-        guard isPaused else { return }
+        stateLock.lock()
+        guard isPaused, !isClosing else {
+            stateLock.unlock()
+            return
+        }
         isPaused = false
         if isRunning {
-            poll()
+            schedulePollLocked()
+        }
+        stateLock.unlock()
+    }
+    
+    private func schedulePollLocked() {
+        guard !pollScheduled else { return }
+        pollScheduled = true
+        queue.async { [weak self] in
+            self?.pollLoop()
         }
     }
     
-    private func poll() {
-        guard isRunning, !isPaused else {
-            if isPaused { pauseSemaphore.signal() }
+    private func pollLoop() {
+        stateLock.lock()
+        pollScheduled = false
+        let running = isRunning
+        let paused = isPaused
+        let closing = isClosing
+        stateLock.unlock()
+        
+        guard running, !paused, !closing else {
+            if paused { pauseSemaphore.signal() }
+            if closing { finishCloseOnQueue() }
             return
         }
         
-        queue.async { [weak self] in
-            guard let self = self else { return }
+        connection.lock.lock()
+        guard let channel = rawPointer else {
+            connection.lock.unlock()
+            finishCloseIfNeeded()
+            return
+        }
+        
+        if term_ssh_channel_is_eof_interactive(UnsafeMutableRawPointer(channel)) != 0 {
+            connection.lock.unlock()
+            stateLock.lock()
+            isRunning = false
+            stateLock.unlock()
+            delegate?.channelDidClose(self)
+            cleanupChannelOnQueue()
+            return
+        }
+        
+        connection.lock.unlock()
+        
+        stateLock.lock()
+        let pausedBeforePoll = isPaused
+        let closingBeforePoll = isClosing
+        stateLock.unlock()
+        if pausedBeforePoll {
+            pauseSemaphore.signal()
+            return
+        }
+        if closingBeforePoll {
+            finishCloseOnQueue()
+            return
+        }
+        
+        let pollResult = term_ssh_channel_poll_timeout_interactive(UnsafeMutableRawPointer(channel), 10, 0)
+        
+        stateLock.lock()
+        let pausedAfterPoll = isPaused
+        let closingAfterPoll = isClosing
+        stateLock.unlock()
+        if pausedAfterPoll {
+            pauseSemaphore.signal()
+            return
+        }
+        if closingAfterPoll {
+            finishCloseOnQueue()
+            return
+        }
+        
+        connection.lock.lock()
+        guard let channel2 = rawPointer else {
+            connection.lock.unlock()
+            finishCloseIfNeeded()
+            return
+        }
+        
+        if pollResult < 0 || term_ssh_channel_is_eof_interactive(UnsafeMutableRawPointer(channel2)) != 0 {
+            connection.lock.unlock()
+            stateLock.lock()
+            isRunning = false
+            stateLock.unlock()
+            delegate?.channelDidClose(self)
+            cleanupChannelOnQueue()
+            return
+        }
+        
+        var shouldContinue = true
+        if pollResult > 0 {
+            let bufferSize = 8192
+            var buffer = [UInt8](repeating: 0, count: bufferSize)
+            let bytesRead = term_ssh_channel_read_nonblocking_interactive(
+                UnsafeMutableRawPointer(channel2),
+                &buffer,
+                UInt32(bufferSize),
+                0
+            )
             
-            // Check pause state BEFORE doing any work
-            guard self.isRunning, !self.isPaused else {
-                if self.isPaused { self.pauseSemaphore.signal() }
-                return
+            if bytesRead > 0 {
+                let data = Data(buffer[0..<Int(bytesRead)])
+                delegate?.channel(self, didReceiveData: data)
+            } else if bytesRead < 0 {
+                shouldContinue = false
+                stateLock.lock()
+                isRunning = false
+                stateLock.unlock()
             }
-            
-            self.connection.lock.lock()
-            guard let channel = self.rawPointer else {
-                self.connection.lock.unlock()
-                return
-            }
-            
-            if term_ssh_channel_is_eof_interactive(UnsafeMutableRawPointer(channel)) != 0 {
-                self.connection.lock.unlock()
-                self.isRunning = false
-                self.delegate?.channelDidClose(self)
-                return
-            }
-            
-            self.connection.lock.unlock()
-            
-            // Check pause state again before the blocking network poll
-            guard !self.isPaused else {
-                self.pauseSemaphore.signal()
-                return
-            }
-            
-            let pollResult = term_ssh_channel_poll_timeout_interactive(UnsafeMutableRawPointer(channel), 10, 0)
-            
-            // Check pause state AFTER network poll returns
-            guard !self.isPaused else {
-                self.pauseSemaphore.signal()
-                return
-            }
-            
-            self.connection.lock.lock()
-            guard let channel2 = self.rawPointer else {
-                self.connection.lock.unlock()
-                return
-            }
-            
-            if pollResult < 0 || term_ssh_channel_is_eof_interactive(UnsafeMutableRawPointer(channel2)) != 0 {
-                self.connection.lock.unlock()
-                self.isRunning = false
-                self.delegate?.channelDidClose(self)
-                return
-            }
-            
-            var moreData = false
-            
-            if pollResult > 0 {
-                let bufferSize = 8192
-                var buffer = [UInt8](repeating: 0, count: bufferSize)
-                let bytesRead = term_ssh_channel_read_nonblocking_interactive(
-                    UnsafeMutableRawPointer(channel2),
-                    &buffer,
-                    UInt32(bufferSize),
-                    0
-                )
-                
-                if bytesRead > 0 {
-                    let data = Data(buffer[0..<Int(bytesRead)])
-                    self.delegate?.channel(self, didReceiveData: data)
-                    moreData = true
-                }
-            }
-            
-            self.connection.lock.unlock()
-            
-            if moreData {
-                self.poll()
-            } else if !self.isRunning {
-                // Safely free the channel on the polling thread to prevent Use-After-Free memory crashes
-                self.connection.lock.lock()
-                if let finalChannel = self.rawPointer {
-                    term_ssh_channel_send_eof_interactive(UnsafeMutableRawPointer(finalChannel))
-                    term_ssh_channel_free_interactive(UnsafeMutableRawPointer(finalChannel))
-                    self.rawPointer = nil
-                }
-                self.connection.lock.unlock()
-            } else {
-                // poll_timeout already slept up to 10ms if there was no data.
-                // Re-queue immediately.
-                DispatchQueue.global().async {
-                    self.poll()
-                }
+        }
+        
+        connection.lock.unlock()
+        
+        stateLock.lock()
+        let stillRunning = isRunning
+        let stillPaused = isPaused
+        let stillClosing = isClosing
+        if shouldContinue && stillRunning && !stillPaused && !stillClosing {
+            schedulePollLocked()
+            stateLock.unlock()
+        } else {
+            stateLock.unlock()
+            if stillClosing {
+                finishCloseOnQueue()
+            } else if !stillRunning {
+                cleanupChannelOnQueue()
             }
         }
     }
     
     public func close() {
+        stateLock.lock()
+        guard !isClosing else {
+            stateLock.unlock()
+            return
+        }
+        isClosing = true
         isRunning = false
+        isPaused = false
+        let shouldSchedule = !pollScheduled
+        if shouldSchedule {
+            schedulePollLocked()
+        }
+        stateLock.unlock()
+        _ = closeSemaphore.wait(timeout: .now() + 2.0)
     }
     
     deinit {
         close()
+    }
+    
+    private func finishCloseIfNeeded() {
+        stateLock.lock()
+        let closing = isClosing
+        stateLock.unlock()
+        if closing {
+            finishCloseOnQueue()
+        }
+    }
+    
+    private func finishCloseOnQueue() {
+        cleanupChannelOnQueue()
+        closeSemaphore.signal()
+    }
+    
+    private func cleanupChannelOnQueue() {
+        connection.lock.lock()
+        if let finalChannel = rawPointer {
+            term_ssh_channel_send_eof_interactive(UnsafeMutableRawPointer(finalChannel))
+            term_ssh_channel_free_interactive(UnsafeMutableRawPointer(finalChannel))
+            rawPointer = nil
+        }
+        connection.lock.unlock()
     }
 }
 
