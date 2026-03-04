@@ -93,29 +93,41 @@ struct HostCardView: View {
                 .padding(14)
                 
                 // Centered content
-                VStack(spacing: 12) {
-                    hostIcon(size: 72, cornerRadius: 18)
-                        .padding(.top, 24)
-                    
-                    VStack(spacing: 4) {
+                VStack(spacing: 0) {
+                    VStack(spacing: 16) {
+                        hostIcon(size: 72, cornerRadius: 18)
+                            .padding(.top, 24)
+                        
                         Text(profile.name)
                             .font(.system(size: 16, weight: .bold))
                             .lineLimit(1)
-                        
-                        Text(profile.host)
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                            .padding(.bottom, 16)
                     }
-                    .padding(.bottom, 12)
                     
-                    Text("ssh \(profile.username)@\(profile.host)\(profile.port != 22 ? " -p \(profile.port)" : "")")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        .padding(.bottom, 16)
+                    // Console / Hacker Style Bottom Bar
+                    HStack {
+                        Text(">_")
+                            .font(.system(size: 11, weight: .black, design: .monospaced))
+                            .foregroundStyle(Color(red: 0.2, green: 0.9, blue: 0.2))
+                        
+                        Text("ssh \(profile.username)@\(profile.host)\(profile.port != 22 ? " -p \(profile.port)" : "")")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .lineLimit(1)
+                        
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color(NSColor.underPageBackgroundColor))
+                    .clipShape(
+                        .rect(
+                            topLeadingRadius: 0,
+                            bottomLeadingRadius: 20,
+                            bottomTrailingRadius: 20,
+                            topTrailingRadius: 0
+                        )
+                    )
                 }
             }
             .frame(maxWidth: .infinity, alignment: .top)
